@@ -1,83 +1,87 @@
 import Foundation
 
-/// A representation of a number in a specific base, where each digit represents a time unit.
-/// This is used as a fundamental building block for the backup pruning algorithm.
-public struct TimeCode {
-    /// The value represented by this TimeCode
+/// A TimeCode represents a point in time as an integer value.
+/// The value is typically the number of seconds since the Unix epoch.
+public struct TimeCode: Equatable, Comparable, Hashable, ExpressibleByIntegerLiteral, ExpressibleByStringLiteral {
     public let value: Int
-
-    /// Creates a new TimeCode with the given value.
-    /// - Parameter value: The integer value to represent
+    
     public init(value: Int) {
         self.value = value
     }
     
-    /// Creates a new TimeCode from a Date, representing the number of seconds since the Unix epoch.
-    /// - Parameter date: The date to convert to a TimeCode
-    public init(date: Date) {
+    public init(integerLiteral value: Int) {
+        self.value = value
+    }
+    
+    public init(stringLiteral value: String) {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: value) else {
+            fatalError("Invalid ISO 8601 date string: \(value)")
+        }
         self.value = Int(date.timeIntervalSince1970)
     }
-
-    /// Returns the digit at the specified position (0-based, from least significant to most significant).
+    
+    /// Returns the digit at the given position in the base-N representation of this TimeCode.
     /// - Parameters:
-    ///   - position: The position of the digit to retrieve
-    ///   - base: The base of the number system (must be greater than 1)
-    /// - Returns: The digit at the specified position
-    /// - Precondition: base > 1
+    ///   - position: The position of the digit to retrieve (0-based, starting from the least significant digit)
+    ///   - base: The base of the number system to use
+    /// - Returns: The digit at the given position
+    /// - Precondition: base > 1 && position >= 0
     public func digit(at position: Int, base: Int) -> Int {
         precondition(base > 1, "Base must be greater than 1")
-        let absValue = abs(value)
-        var divisor = 1
+        precondition(position >= 0, "Position must be non-negative")
+        
+        var remaining = value
         for _ in 0..<position {
-            divisor *= base
+            remaining /= base
         }
-        return (absValue / divisor) % base
+        return remaining % base
     }
-
-    /// Returns the number of digits in this TimeCode for the given base.
-    /// - Parameter base: The base of the number system (must be greater than 1)
+    
+    /// Returns the number of digits in the base-N representation of this TimeCode.
+    /// - Parameter base: The base of the number system to use
     /// - Returns: The number of digits
     /// - Precondition: base > 1
     public func digitCount(base: Int) -> Int {
         precondition(base > 1, "Base must be greater than 1")
+        
         if value == 0 {
             return 1
         }
-        var absValue = abs(value)
+        
         var count = 0
-        while absValue > 0 {
-            absValue /= base
+        var remaining = value
+        while remaining > 0 {
+            remaining /= base
             count += 1
         }
         return count
     }
     
-    /// Returns the position of the most significant digit where this TimeCode differs from another TimeCode.
+    /// Returns the position of the most significant digit that differs between this TimeCode and another.
     /// - Parameters:
-    ///   - other: The TimeCode to compare against
-    ///   - base: The base to use for digit comparison
-    /// - Returns: The 0-based position of the most significant differing digit, or nil if the TimeCodes are identical
+    ///   - other: The other TimeCode to compare with
+    ///   - base: The base of the number system to use
+    /// - Returns: The position of the most significant differing digit, or nil if the TimeCodes are equal
     /// - Precondition: base > 1
     public func mostSignificantDifferingDigitPosition(from other: TimeCode, base: Int) -> Int? {
         precondition(base > 1, "Base must be greater than 1")
         
-        let maxLength = max(self.digitCount(base: base), other.digitCount(base: base))
-        
-        // Compare from most significant to least significant
-        for i in (0..<maxLength).reversed() {
-            if self.digit(at: i, base: base) != other.digit(at: i, base: base) {
-                return i
-            }
+        if value == other.value {
+            return nil
         }
         
-        return nil // TimeCodes are identical
+        let maxDigits = max(digitCount(base: base), other.digitCount(base: base))
+        for position in (0..<maxDigits).reversed() {
+            if digit(at: position, base: base) != other.digit(at: position, base: base) {
+                return position
+            }
+        }
+        return nil
     }
-}
-
-// MARK: - Equatable
-extension TimeCode: Equatable {
-    public static func == (lhs: TimeCode, rhs: TimeCode) -> Bool {
-        return lhs.value == rhs.value
+    
+    public static func < (lhs: TimeCode, rhs: TimeCode) -> Bool {
+        return lhs.value < rhs.value
     }
 }
 
