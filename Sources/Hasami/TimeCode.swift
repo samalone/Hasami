@@ -21,6 +21,10 @@ public struct TimeCode: Equatable, Comparable, Hashable, ExpressibleByIntegerLit
         self.value = Int(date.timeIntervalSince1970)
     }
     
+    public init(date: Date) {
+        self.value = Int(date.timeIntervalSince1970)
+    }
+    
     /// Returns the digit at the given position in the base-N representation of this TimeCode.
     /// - Parameters:
     ///   - position: The position of the digit to retrieve (0-based, starting from the least significant digit)

@@ -160,29 +160,56 @@ public struct BackupTree: Equatable {
 
 // MARK: - Pruning Properties
 extension BackupTree {
-    /// Determines how many backups to retain for a subtree based on its digit.
+    /// Determines how many backups to retain for each digit group using geometric distribution.
+    /// This ensures the total allocations exactly match the available count.
     /// - Parameters:
     ///   - available: The number of backups available to allocate
     ///   - base: The base of the number system
-    ///   - digit: The digit of the subtree (0 ..< base)
-    /// - Returns: The number of backups to allocate to this subtree
-    private func allocateBackups(available: Int, base: Int, digit: Int) -> Int {
+    ///   - digits: The digits that have backup groups
+    /// - Returns: A dictionary mapping digits to their allocation counts
+    private func allocateBackupsExactly(available: Int, base: Int, digits: [Int]) -> [Int: Int] {
         precondition(available >= 0, "Available backups must be non-negative")
         precondition(base > 1, "Base must be greater than 1")
-        precondition(digit >= 0 && digit < base, "Digit must be in range 0..<base")
         
-        if available == 0 {
-            return 0
+        var allocations: [Int: Int] = [:]
+        var remaining = available
+        
+        if available == 0 || digits.isEmpty {
+            return allocations
         }
         
-        // Use a geometric distribution where each digit gets a fraction of the remaining backups
-        // Higher digits (more recent backups) get more allocations
-        let weight = base - digit
         let totalWeight = base * (base + 1) / 2  // Sum of weights from 1 to base
-        let allocation = Int((Double(available) * Double(weight)) / Double(totalWeight))
         
-        // Ensure at least one backup is allocated if any are available
-        return max(1, allocation)
+        // Pass 1: Calculate geometric distribution with rounding
+        for digit in digits {
+            let weight = base - digit
+            let exactAllocation = (Double(available) * Double(weight)) / Double(totalWeight)
+            let allocation = Int(exactAllocation.rounded())
+            allocations[digit] = allocation
+            remaining -= allocation
+        }
+        
+        // Pass 2: Distribute any remaining backups to highest digits first
+        // (or remove from lowest digits if we over-allocated)
+        let sortedDigits = digits.sorted(by: >)  // Highest digits first
+        
+        while remaining != 0 {
+            for digit in (remaining > 0 ? sortedDigits : sortedDigits.reversed()) {
+                if remaining == 0 { break }
+                
+                if remaining > 0 {
+                    // Add one more backup to this digit
+                    allocations[digit] = (allocations[digit] ?? 0) + 1
+                    remaining -= 1
+                } else if (allocations[digit] ?? 0) > 0 {
+                    // Remove one backup from this digit
+                    allocations[digit] = (allocations[digit] ?? 0) - 1
+                    remaining += 1
+                }
+            }
+        }
+        
+        return allocations
     }
     
     /// Returns the backups that should be retained according to the pruning algorithm.
@@ -226,19 +253,21 @@ extension BackupTree {
         // Sort digits in descending order (most recent first)
         let sortedDigits = digitGroups.keys.sorted(by: >)
         
-        // Allocate backups to each digit group
+        // Calculate exact allocations that sum to remainingToRetain
+        let allocations = allocateBackupsExactly(available: remainingToRetain, base: base, digits: sortedDigits)
+        
+        // Apply the allocations by recursively retaining backups from each digit group
         for digit in sortedDigits {
-            let allocation = allocateBackups(available: remainingToRetain, base: base, digit: digit)
-            if allocation > 0 {
-                let group = digitGroups[digit]!
-                let subtree = BackupTree(timeCodes: group)
-                let subtreeRetained = subtree.retainedBackups(base: base, retain: allocation)
-                retained.append(contentsOf: subtreeRetained)
-                remainingToRetain -= subtreeRetained.count
-                
-                if remainingToRetain == 0 {
-                    break
-                }
+            guard let allocation = allocations[digit], allocation > 0 else { continue }
+            guard let group = digitGroups[digit] else { continue }
+            
+            let subtree = BackupTree(timeCodes: group)
+            let subtreeRetained = subtree.retainedBackups(base: base, retain: min(allocation, group.count))
+            retained.append(contentsOf: subtreeRetained)
+            remainingToRetain -= subtreeRetained.count
+            
+            if remainingToRetain <= 0 {
+                break
             }
         }
         

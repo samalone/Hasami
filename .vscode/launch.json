@@ -1,0 +1,40 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Hasami}",
+            "name": "Debug prune",
+            "program": "${workspaceFolder:Hasami}/.build/debug/prune",
+            "preLaunchTask": "swift: Build Debug prune"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Hasami}",
+            "name": "Release prune",
+            "program": "${workspaceFolder:Hasami}/.build/release/prune",
+            "preLaunchTask": "swift: Build Release prune"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Hasami}",
+            "name": "Debug sukashi",
+            "program": "${workspaceFolder:Hasami}/.build/debug/sukashi",
+            "preLaunchTask": "swift: Build Debug sukashi"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Hasami}",
+            "name": "Release sukashi",
+            "program": "${workspaceFolder:Hasami}/.build/release/sukashi",
+            "preLaunchTask": "swift: Build Release sukashi"
+        }
+    ]
+}
