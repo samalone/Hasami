@@ -20,6 +20,10 @@ struct SukashiCommand: ParsableCommand {
         to restrict the type of items processed. Use --include-hidden to process hidden items.
         
         Use --dry-run to see what would happen without actually moving anything to Trash.
+        Use --force-delete to immediately delete items instead of moving them to Trash (useful for network volumes).
+        
+        Use --diagram to output MermaidJS diagrams showing the complete tree structure and pruning decisions.
+        Use --diagram-output to save diagrams to a file instead of stdout.
         """
     )
     
@@ -49,6 +53,15 @@ struct SukashiCommand: ParsableCommand {
     
     @Flag(name: .long, help: "Process only directories (exclude files)")
     var directoriesOnly: Bool = false
+    
+    @Flag(name: .long, help: "Force immediate deletion instead of moving to Trash (useful for network volumes)")
+    var forceDelete: Bool = false
+    
+    @Flag(name: .long, help: "Output MermaidJS diagram showing complete tree structure and retention decisions")
+    var diagram: Bool = false
+    
+    @Option(name: .long, help: "File path for diagram output (defaults to stdout)")
+    var diagramOutput: String?
     
     func run() throws {
         // Validate conflicting flags
@@ -91,6 +104,24 @@ struct SukashiCommand: ParsableCommand {
         let retained = tree.retainedBackups(base: base, retain: retain)
         let retainedSet = Set(retained)
         
+        // Generate and output diagrams if requested
+        if diagram {
+            let diagramContent = tree.mermaidDiagram(base: base, retain: retain)
+            
+            if let outputPath = diagramOutput {
+                // Write to file
+                do {
+                    try diagramContent.write(toFile: outputPath, atomically: true, encoding: .utf8)
+                    print("Diagram written to: \(outputPath)")
+                } catch {
+                    print("Error writing diagram to '\(outputPath)': \(error.localizedDescription)")
+                }
+            } else {
+                // Write to stdout
+                print(diagramContent)
+            }
+        }
+        
         if verbose {
             print("Pruning algorithm (base \(base), retain \(retain)):")
             print("Tree representation:")
@@ -128,14 +159,16 @@ struct SukashiCommand: ParsableCommand {
             print("  \(name) (created: \(formatDate(date)))")
         }
         
-        let deleteVerb = dryRun ? "WOULD MOVE TO TRASH" : "MOVING TO TRASH"
+        let deleteAction = forceDelete ? "DELETE" : "MOVE TO TRASH"
+        let deleteVerb = dryRun ? "WOULD \(deleteAction)" : deleteAction
         print("\n\(deleteVerb) (\(deletedItems.count) \(itemType)):")
         for (name, date) in deletedItems {
             print("  \(name) (created: \(formatDate(date)))")
         }
         
         if !dryRun && !deletedItems.isEmpty {
-            print("\nProceeding with sukashi (透かし) - moving \(deletedItems.count) \(itemType) to Trash...")
+            let actionVerb = forceDelete ? "deleting" : "moving to Trash"
+            print("\nProceeding with sukashi (透かし) - \(actionVerb) \(deletedItems.count) \(itemType)...")
             
             var successCount = 0
             var failureCount = 0
@@ -143,26 +176,38 @@ struct SukashiCommand: ParsableCommand {
             for (name, _) in deletedItems {
                 let itemURL = url.appendingPathComponent(name)
                 do {
-                    try FileManager.default.trashItem(at: itemURL, resultingItemURL: nil)
-                    successCount += 1
-                    if verbose {
-                        print("  ✓ Moved \(name) to Trash")
+                    if forceDelete {
+                        try FileManager.default.removeItem(at: itemURL)
+                        successCount += 1
+                        if verbose {
+                            print("  ✓ Deleted \(name)")
+                        }
+                    } else {
+                        try FileManager.default.trashItem(at: itemURL, resultingItemURL: nil)
+                        successCount += 1
+                        if verbose {
+                            print("  ✓ Moved \(name) to Trash")
+                        }
                     }
                 } catch {
-                    print("  ✗ Failed to move \(name) to Trash: \(error.localizedDescription)")
+                    let errorAction = forceDelete ? "delete" : "move to Trash"
+                    print("  ✗ Failed to \(errorAction) \(name): \(error.localizedDescription)")
                     failureCount += 1
                 }
             }
             
-            print("\nSukashi completed: \(successCount) moved to Trash, \(failureCount) failed")
+            let completionAction = forceDelete ? "deleted" : "moved to Trash"
+            print("\nSukashi completed: \(successCount) \(completionAction), \(failureCount) failed")
             if failureCount > 0 {
                 print("Note: Failed items remain in the backup directory")
             }
         } else if dryRun {
-            print("\nDry run completed - no \(itemType) were moved")
+            let dryRunAction = forceDelete ? "deleted" : "moved to Trash"
+            print("\nDry run completed - no \(itemType) were \(dryRunAction)")
         }
         
-        print("\nSummary: \(retainedItems.count) retained, \(deletedItems.count) \(dryRun ? "would be moved to Trash" : "moved to Trash")")
+        let summaryAction = forceDelete ? "deleted" : "moved to Trash"
+        print("\nSummary: \(retainedItems.count) retained, \(deletedItems.count) \(dryRun ? "would be \(summaryAction)" : summaryAction)")
     }
     
     private func getBackupItems(at url: URL) throws -> [(String, Date)] {

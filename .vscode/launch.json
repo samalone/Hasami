@@ -24,8 +24,9 @@
             "args": [],
             "cwd": "${workspaceFolder:Hasami}",
             "name": "Debug sukashi",
-            "program": "${workspaceFolder:Hasami}/.build/debug/sukashi",
-            "preLaunchTask": "swift: Build Debug sukashi"
+            "preLaunchTask": "swift: Build Debug sukashi",
+            "target": "sukashi",
+            "configuration": "debug"
         },
         {
             "type": "swift",
@@ -33,8 +34,9 @@
             "args": [],
             "cwd": "${workspaceFolder:Hasami}",
             "name": "Release sukashi",
-            "program": "${workspaceFolder:Hasami}/.build/release/sukashi",
-            "preLaunchTask": "swift: Build Release sukashi"
+            "preLaunchTask": "swift: Build Release sukashi",
+            "target": "sukashi",
+            "configuration": "release"
         }
     ]
 }

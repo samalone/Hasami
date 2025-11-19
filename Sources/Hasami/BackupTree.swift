@@ -296,3 +296,145 @@ extension BackupTree {
         return wouldRetain(TimeCode(value: value), base: base, retain: retain)
     }
 }
+
+// MARK: - Visualization
+extension BackupTree {
+    /// Generates a recursive MermaidJS diagram showing the complete tree structure and retention decisions.
+    /// - Parameters:
+    ///   - base: The base of the number system to use for pruning
+    ///   - retain: The number of backups to retain
+    /// - Returns: A recursive MermaidJS diagram string
+    /// - Precondition: base > 1 && retain > 0
+    public func mermaidDiagram(base: Int, retain: Int) -> String {
+        precondition(base > 1, "Base must be greater than 1")
+        precondition(retain > 0, "Must retain at least one backup")
+        
+        var diagram = "graph LR\n"
+        var nodeCounter = 0
+        var nodeMap: [TimeCode: String] = [:]
+        
+        func addNode(_ timeCode: TimeCode, label: String, color: String) -> String {
+            let nodeId = "N\(nodeCounter)"
+            nodeCounter += 1
+            nodeMap[timeCode] = nodeId
+            diagram += "    \(nodeId)[\"\(label)\"]\n"
+            diagram += "    style \(nodeId) fill:\(color)\n"
+            return nodeId
+        }
+        
+        func formatTimeCode(_ timeCode: TimeCode, startPosition: Int? = nil, endPosition: Int? = nil) -> String {
+            let fullString = String(timeCode.value, radix: base)
+            
+            if let start = startPosition, let end = endPosition {
+                // Ensure we have valid indices and start <= end
+                let startIndex = fullString.index(fullString.startIndex, offsetBy: max(0, fullString.count - start - 1))
+                let endIndex = fullString.index(fullString.startIndex, offsetBy: max(0, fullString.count - end - 1))
+                
+                // Ensure startIndex <= endIndex
+                if startIndex <= endIndex {
+                    return String(fullString[startIndex..<endIndex])
+                } else {
+                    // If the range is invalid, return the full string
+                    return fullString
+                }
+            }
+            
+            return fullString
+        }
+        
+        func formatTimeCodeRelevant(_ timeCode: TimeCode, msdPosition: Int) -> String {
+            let fullString = String(timeCode.value, radix: base)
+            
+            // Show digits from the most significant differing position down to the end
+            let startIndex = fullString.index(fullString.startIndex, offsetBy: max(0, fullString.count - msdPosition - 1))
+            return String(fullString[startIndex...])
+        }
+        
+        func addSubtree(_ tree: BackupTree, parentId: String?, level: Int, retain: Int) {
+            guard let oldest = tree.oldest, let mostRecent = tree.mostRecent else { return }
+            
+            // Find the most significant digit that varies
+            guard let msdPosition = oldest.mostSignificantDifferingDigitPosition(from: mostRecent, base: base) else {
+                // Single value case - this is a leaf
+                let nodeId = addNode(mostRecent, label: "\(formatTimeCode(mostRecent))\n[RETAINED]", color: "#90EE90")
+                if let parentId = parentId {
+                    diagram += "    \(parentId) --> \(nodeId)\n"
+                }
+                return
+            }
+            
+            // Group backups by their digit at the current position
+            var digitGroups: [Int: [TimeCode]] = [:]
+            for timeCode in tree.timeCodes {
+                if timeCode != mostRecent {
+                    let digit = timeCode.digit(at: msdPosition, base: base)
+                    digitGroups[digit, default: []].append(timeCode)
+                }
+            }
+            
+            // Sort digits in descending order
+            let sortedDigits = digitGroups.keys.sorted(by: >)
+            
+            // Calculate allocations
+            let remainingToRetain = retain - 1
+            let allocations = allocateBackupsExactly(available: remainingToRetain, base: base, digits: sortedDigits)
+            
+            // Add most recent backup
+            let mostRecentLabel = "\(formatTimeCodeRelevant(mostRecent, msdPosition: msdPosition))\n[RETAINED]"
+            let mostRecentId = addNode(mostRecent, label: mostRecentLabel, color: "#90EE90")
+            if let parentId = parentId {
+                diagram += "    \(parentId) --> \(mostRecentId)\n"
+            }
+            
+            // Process each digit group
+            for digit in sortedDigits {
+                guard let group = digitGroups[digit] else { continue }
+                let allocation = allocations[digit] ?? 0
+                
+                // Create digit group node
+                let groupId = addNode(TimeCode(value: -1), label: "Digit \(digit) Group\nCount: \(group.count)\nAllocated: \(allocation)", color: "#ffeb3b")
+                if let parentId = parentId {
+                    diagram += "    \(parentId) --> \(groupId)\n"
+                }
+                
+                // Create subtree for this digit group
+                let subtree = BackupTree(timeCodes: group)
+                
+                // Check if this subtree can be further subdivided
+                let canSubdivide = subtree.count > 1 && allocation > 1
+                
+                if allocation == 0 {
+                    // Zero allocation case - show all items as deleted at this level
+                    for timeCode in group {
+                        let timeCodeLabel = "\(formatTimeCodeRelevant(timeCode, msdPosition: msdPosition))\n[DELETED]"
+                        let nodeId = addNode(timeCode, label: timeCodeLabel, color: "#ffcdd2")
+                        diagram += "    \(groupId) --> \(nodeId)\n"
+                    }
+                } else if canSubdivide {
+                    // Can be further subdivided - recurse without showing individual items
+                    addSubtree(subtree, parentId: groupId, level: level + 1, retain: allocation)
+                } else {
+                    // Cannot be further subdivided - this is a leaf, show individual items
+                    let subtreeRetained = subtree.retainedBackups(base: base, retain: min(allocation, group.count))
+                    
+                    for timeCode in group {
+                        let isRetained = subtreeRetained.contains(timeCode)
+                        let status = isRetained ? "[RETAINED]" : "[DELETED]"
+                        let color = isRetained ? "#90EE90" : "#ffcdd2"
+                        let timeCodeLabel = "\(formatTimeCodeRelevant(timeCode, msdPosition: msdPosition))\n\(status)"
+                        let nodeId = addNode(timeCode, label: timeCodeLabel, color: color)
+                        diagram += "    \(groupId) --> \(nodeId)\n"
+                    }
+                }
+            }
+        }
+        
+        // Add root node
+        let rootId = addNode(TimeCode(value: -1), label: "BackupTree\nTotal: \(count)\nRetain: \(retain)\nBase: \(base)", color: "#e6f3ff")
+        
+        // Start the recursive process
+        addSubtree(self, parentId: rootId, level: 0, retain: retain)
+        
+        return diagram
+    }
+}

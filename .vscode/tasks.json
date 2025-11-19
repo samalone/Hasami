@@ -1,0 +1,46 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build and Install Release",
+            "type": "shell",
+            "command": "sudo",
+            "args": [
+                "cp",
+                ".build/release/sukashi",
+                "/usr/local/bin/"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "dependsOn": "Build Release"
+        },
+        {
+            "label": "Build Release",
+            "type": "shell",
+            "command": "swift",
+            "args": [
+                "build",
+                "--configuration",
+                "release"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}
