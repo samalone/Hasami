@@ -8,83 +8,83 @@ struct SukashiCommand: ParsableCommand {
         commandName: "sukashi",
         abstract: "Prune backup files and directories using the Hasami sukashi (透かし) algorithm - letting important items shine through.",
         discussion: """
-        Sukashi (透かし) means "thinning" or "letting light through" in Japanese gardening. This tool prunes 
-        files and directories using the Hasami sukashi algorithm, moving unwanted items to the macOS Trash 
+        Sukashi (透かし) means "thinning" or "letting light through" in Japanese gardening. This tool prunes
+        files and directories using the Hasami sukashi algorithm, moving unwanted items to the macOS Trash
         for safety.
-        
-        Like pruning a bonsai tree, the algorithm treats items as base-N numbers based on their creation 
-        timestamps, favoring more recent items while maintaining some representation from older periods - 
-        letting the most important items "shine through."
-        
-        By default, processes all non-hidden files and directories. Use --files-only or --directories-only 
+
+        The algorithm retains more recent backups and progressively fewer older ones, so that gaps between
+        retained backups grow geometrically with age. It works with backups taken on irregular schedules
+        and is deterministic.
+
+        By default, processes all non-hidden files and directories. Use --files-only or --directories-only
         to restrict the type of items processed. Use --include-hidden to process hidden items.
-        
+
         Use --dry-run to see what would happen without actually moving anything to Trash.
         Use --force-delete to immediately delete items instead of moving them to Trash (useful for network volumes).
-        
-        Use --diagram to output MermaidJS diagrams showing the complete tree structure and pruning decisions.
-        Use --diagram-output to save diagrams to a file instead of stdout.
         """
     )
-    
+
     @Argument(help: "The directory containing items to prune")
     var backupDirectory: String
-    
+
     @Option(name: .shortAndLong, help: "Number of items to retain")
     var retain: Int = 10
-    
-    @Option(name: .shortAndLong, help: "Base for the pruning algorithm")
-    var base: Int = 2
-    
+
+    @Option(name: [.long, .customShort("x")], help: "Radix for the pruning algorithm (how aggressively older backups thin out)")
+    var radix: Int = 2
+
+    @Option(name: .long, help: "Radix for the pruning algorithm (alias for --radix)")
+    var base: Int?
+
+    @Option(name: .long, help: "Slot duration in seconds (minimum time resolution for deduplication)")
+    var slotDuration: Int = 1
+
     @Flag(name: .shortAndLong, help: "Show verbose output with algorithm details")
     var verbose: Bool = false
-    
+
     @Flag(name: .long, help: "Sort output by creation date instead of name")
     var sortByDate: Bool = false
-    
+
     @Flag(name: .long, help: "Show what would be done without actually moving anything to Trash")
     var dryRun: Bool = false
-    
+
     @Flag(name: .long, help: "Include hidden items (those starting with '.')")
     var includeHidden: Bool = false
-    
+
     @Flag(name: .long, help: "Process only files (exclude directories)")
     var filesOnly: Bool = false
-    
+
     @Flag(name: .long, help: "Process only directories (exclude files)")
     var directoriesOnly: Bool = false
-    
+
     @Flag(name: .long, help: "Force immediate deletion instead of moving to Trash (useful for network volumes)")
     var forceDelete: Bool = false
-    
-    @Flag(name: .long, help: "Output MermaidJS diagram showing complete tree structure and retention decisions")
-    var diagram: Bool = false
-    
-    @Option(name: .long, help: "File path for diagram output (defaults to stdout)")
-    var diagramOutput: String?
-    
+
     func run() throws {
         // Validate conflicting flags
         if filesOnly && directoriesOnly {
             throw ValidationError("Cannot specify both --files-only and --directories-only")
         }
-        
+
+        // Resolve radix: --base is an alias for --radix
+        let effectiveRadix = base ?? radix
+
         let url = URL(fileURLWithPath: backupDirectory)
-        
+
         // Verify the directory exists
         guard FileManager.default.fileExists(atPath: backupDirectory) else {
             throw ValidationError("Directory '\(backupDirectory)' does not exist")
         }
-        
+
         // Get all items with their creation dates
         let backupItems = try getBackupItems(at: url)
-        
+
         if backupItems.isEmpty {
             let itemType = filesOnly ? "files" : (directoriesOnly ? "directories" : "items")
             print("No backup \(itemType) found in '\(backupDirectory)'")
             return
         }
-        
+
         if verbose {
             let itemType = filesOnly ? "files" : (directoriesOnly ? "directories" : "items")
             print("Found \(backupItems.count) backup \(itemType):")
@@ -93,46 +93,27 @@ struct SukashiCommand: ParsableCommand {
             }
             print()
         }
-        
+
         // Convert creation dates to TimeCodes (seconds since Unix epoch)
         let timeCodes = backupItems.map { (name, date) in
             (name: name, timeCode: TimeCode(date: date))
         }
-        
+
         // Create BackupTree and run pruning algorithm
         let tree = BackupTree(timeCodes: timeCodes.map { $0.timeCode })
-        let retained = tree.retainedBackups(base: base, retain: retain)
+        let now = TimeCode(date: Date())
+        let retained = tree.retainedBackups(now: now, radix: effectiveRadix, slotDuration: slotDuration, keepCount: retain)
         let retainedSet = Set(retained)
-        
-        // Generate and output diagrams if requested
-        if diagram {
-            let diagramContent = tree.mermaidDiagram(base: base, retain: retain)
-            
-            if let outputPath = diagramOutput {
-                // Write to file
-                do {
-                    try diagramContent.write(toFile: outputPath, atomically: true, encoding: .utf8)
-                    print("Diagram written to: \(outputPath)")
-                } catch {
-                    print("Error writing diagram to '\(outputPath)': \(error.localizedDescription)")
-                }
-            } else {
-                // Write to stdout
-                print(diagramContent)
-            }
-        }
-        
+
         if verbose {
-            print("Pruning algorithm (base \(base), retain \(retain)):")
-            print("Tree representation:")
-            print(tree.description(base: base))
+            print("Pruning algorithm (radix \(effectiveRadix), retain \(retain), slot duration \(slotDuration)s):")
             print()
         }
-        
+
         // Separate retained and deleted items
         var retainedItems: [(String, Date)] = []
         var deletedItems: [(String, Date)] = []
-        
+
         for (name, date) in backupItems {
             let timeCode = TimeCode(date: date)
             if retainedSet.contains(timeCode) {
@@ -141,7 +122,7 @@ struct SukashiCommand: ParsableCommand {
                 deletedItems.append((name, date))
             }
         }
-        
+
         // Sort by date if requested
         if sortByDate {
             retainedItems.sort { $0.1 < $1.1 }
@@ -150,7 +131,7 @@ struct SukashiCommand: ParsableCommand {
             retainedItems.sort { $0.0 < $1.0 }
             deletedItems.sort { $0.0 < $1.0 }
         }
-        
+
         // Print results
         let itemType = filesOnly ? "files" : (directoriesOnly ? "directories" : "items")
         let actionVerb = dryRun ? "WOULD RETAIN" : "RETAINING"
@@ -158,21 +139,21 @@ struct SukashiCommand: ParsableCommand {
         for (name, date) in retainedItems {
             print("  \(name) (created: \(formatDate(date)))")
         }
-        
+
         let deleteAction = forceDelete ? "DELETE" : "MOVE TO TRASH"
         let deleteVerb = dryRun ? "WOULD \(deleteAction)" : deleteAction
         print("\n\(deleteVerb) (\(deletedItems.count) \(itemType)):")
         for (name, date) in deletedItems {
             print("  \(name) (created: \(formatDate(date)))")
         }
-        
+
         if !dryRun && !deletedItems.isEmpty {
             let actionVerb = forceDelete ? "deleting" : "moving to Trash"
             print("\nProceeding with sukashi (透かし) - \(actionVerb) \(deletedItems.count) \(itemType)...")
-            
+
             var successCount = 0
             var failureCount = 0
-            
+
             for (name, _) in deletedItems {
                 let itemURL = url.appendingPathComponent(name)
                 do {
@@ -180,22 +161,22 @@ struct SukashiCommand: ParsableCommand {
                         try FileManager.default.removeItem(at: itemURL)
                         successCount += 1
                         if verbose {
-                            print("  ✓ Deleted \(name)")
+                            print("  Moved \(name) to Trash")
                         }
                     } else {
                         try FileManager.default.trashItem(at: itemURL, resultingItemURL: nil)
                         successCount += 1
                         if verbose {
-                            print("  ✓ Moved \(name) to Trash")
+                            print("  Moved \(name) to Trash")
                         }
                     }
                 } catch {
                     let errorAction = forceDelete ? "delete" : "move to Trash"
-                    print("  ✗ Failed to \(errorAction) \(name): \(error.localizedDescription)")
+                    print("  Failed to \(errorAction) \(name): \(error.localizedDescription)")
                     failureCount += 1
                 }
             }
-            
+
             let completionAction = forceDelete ? "deleted" : "moved to Trash"
             print("\nSukashi completed: \(successCount) \(completionAction), \(failureCount) failed")
             if failureCount > 0 {
@@ -205,37 +186,37 @@ struct SukashiCommand: ParsableCommand {
             let dryRunAction = forceDelete ? "deleted" : "moved to Trash"
             print("\nDry run completed - no \(itemType) were \(dryRunAction)")
         }
-        
+
         let summaryAction = forceDelete ? "deleted" : "moved to Trash"
         print("\nSummary: \(retainedItems.count) retained, \(deletedItems.count) \(dryRun ? "would be \(summaryAction)" : summaryAction)")
     }
-    
+
     private func getBackupItems(at url: URL) throws -> [(String, Date)] {
         let fileManager = FileManager.default
         let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey])
-        
+
         var backupItems: [(String, Date)] = []
-        
+
         for itemURL in contents {
             let itemName = itemURL.lastPathComponent
-            
+
             // Skip hidden items by default
             if !includeHidden && itemName.hasPrefix(".") {
                 continue
             }
-            
+
             let resourceValues = try itemURL.resourceValues(forKeys: [.creationDateKey, .isDirectoryKey])
-            
+
             // Apply file/directory filtering
             if let isDirectory = resourceValues.isDirectory {
                 if filesOnly && isDirectory {
-                    continue  // Skip directories when files-only is requested
+                    continue
                 }
                 if directoriesOnly && !isDirectory {
-                    continue  // Skip files when directories-only is requested
+                    continue
                 }
             }
-            
+
             // Get creation date
             guard let creationDate = resourceValues.creationDate else {
                 if verbose {
@@ -243,13 +224,13 @@ struct SukashiCommand: ParsableCommand {
                 }
                 continue
             }
-            
+
             backupItems.append((itemName, creationDate))
         }
-        
+
         return backupItems
     }
-    
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium

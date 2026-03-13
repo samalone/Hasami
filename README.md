@@ -1,34 +1,29 @@
-# Hasami 🌸
+# Hasami
 
 **Intelligent Filesystem Pruning with Japanese Precision**
 
-Hasami is a Swift utility library that implements the sukashi (透かし) algorithm for intelligent filesystem pruning. Like pruning a bonsai tree to let light through, Hasami carefully thins collections of files and directories, favoring more recent items while maintaining representation from older periods.
+Hasami is a Swift utility that implements the sukashi (透かし) algorithm for intelligent filesystem pruning. Like pruning a bonsai tree to let light through, Hasami carefully thins collections of files and directories, retaining more recent backups and progressively fewer older ones so that gaps between retained backups grow geometrically with age.
 
 ## What is Sukashi?
 
-Sukashi (透かし) means "thinning" or "letting light through" in Japanese gardening. The algorithm treats filesystem items as base-N numbers based on their creation timestamps, using a deterministic recursive tree algorithm that intelligently allocates retention slots.
+Sukashi (透かし) means "thinning" or "letting light through" in Japanese gardening. The algorithm uses radix-based priority selection to rank backups by age, producing a distribution where recent backups are kept densely and older backups are kept at exponentially increasing intervals.
 
 ### Key Features
 
-- **🎯 Deterministic**: Same input always produces same output
-- **🌱 Intelligent**: Favors recent items while preserving history
-- **🛡️ Safe**: Moves to Trash, not permanent deletion
-- **🔧 Flexible**: Works with files, directories, or both
-- **⚡ Fast**: Efficient Swift implementation
+- **Deterministic**: Same input always produces same output
+- **Works with irregular schedules**: No assumption about backup frequency
+- **Safe**: Moves to macOS Trash by default, not permanent deletion
+- **Flexible**: Works with files, directories, or both
+- **Simple**: The core is a sort with a custom key function, followed by truncation
 
 ## Quick Start
 
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/your-username/hasami.git
 cd hasami
-
-# Build the project
 swift build
-
-# Run sukashi
 swift run sukashi --help
 ```
 
@@ -41,8 +36,8 @@ swift run sukashi /path/to/backups
 # See what would happen first
 swift run sukashi /path/to/backups --dry-run --verbose
 
-# Custom retention and base
-swift run sukashi /path/to/backups --retain 20 --base 10
+# Custom retention and radix
+swift run sukashi /path/to/backups --retain 20 --radix 3
 ```
 
 ## Examples
@@ -67,40 +62,19 @@ swift run sukashi /var/log --files-only --retain 5
 swift run sukashi /var/log --files-only --include-hidden --retain 10
 ```
 
-### Download Folder Organization
-
-```bash
-# Prune downloads, keeping 50 items
-swift run sukashi ~/Downloads --retain 50 --base 16
-
-# Sort by date for better overview
-swift run sukashi ~/Downloads --sort-by-date --retain 30
-```
-
 ## How It Works
 
-### The Algorithm
+The algorithm computes each backup's age relative to the current time, then assigns a priority key based on radix digit reversal. Sorting by this key interleaves representatives from every time scale (hours, days, weeks, months) before filling in detail at any single scale. The result: recent backups are dense, older backups are sparse, and gaps grow geometrically.
 
-1. **TimeCode Conversion**: Each item's creation timestamp becomes a TimeCode
-2. **Base-N Representation**: TimeCodes are treated as base-N numbers
-3. **Recursive Tree Processing**: Algorithm works digit by digit
-4. **Geometric Distribution**: More recent items get more retention slots
-5. **Deterministic Results**: Same input always produces same output
+For the full algorithm specification, see [docs/backup-pruning-algorithm.md](docs/backup-pruning-algorithm.md).
 
-### Example with Base 2
+### Example Distribution
+
+180 daily backups, radix 2, keep 20:
 
 ```
-Items with timestamps:
-- item1: 1704067200 (2024-01-01)
-- item2: 1717200000 (2024-06-01)  
-- item3: 1735689600 (2024-12-01)
-
-Binary representation:
-- item1: 1100111010011001001011000010000
-- item2: 1100110010110110100010110000000
-- item3: 1100101100100101110111110010000
-
-Algorithm retains: item1, item3 (favoring recent while keeping history)
+Kept (days ago): 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160
+Gaps (days):     1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32, 32
 ```
 
 ## Command Line Options
@@ -110,7 +84,9 @@ Algorithm retains: item1, item3 (favoring recent while keeping history)
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-r, --retain <number>` | Items to retain | 10 |
-| `-b, --base <number>` | Algorithm base | 2 |
+| `-x, --radix <number>` | Radix for pruning (2 = gaps double, 3 = gaps triple) | 2 |
+| `--base <number>` | Alias for `--radix` | |
+| `--slot-duration <seconds>` | Minimum time resolution for deduplication | 1 |
 | `--dry-run` | Preview without changes | false |
 
 ### Filtering Options
@@ -128,9 +104,15 @@ Algorithm retains: item1, item3 (favoring recent while keeping history)
 | `-v, --verbose` | Show algorithm details |
 | `--sort-by-date` | Sort by creation date |
 
+### Deletion Options
+
+| Option | Description |
+|--------|-------------|
+| `--force-delete` | Permanently delete instead of moving to Trash |
+
 ## Safety Features
 
-### 🛡️ Dry Run Mode
+### Dry Run Mode
 
 Always test first:
 
@@ -138,111 +120,15 @@ Always test first:
 swift run sukashi /important/data --dry-run --verbose
 ```
 
-### 🗑️ Trash Instead of Deletion
+### Trash Instead of Deletion
 
-Items are moved to macOS Trash, not permanently deleted:
-
-- Recoverable from Trash
-- Failed operations leave items in place
-- Clear success/failure feedback
-
-### ✅ Validation
-
-The tool prevents common errors:
-
-- Conflicting flags
-- Invalid base values
-- Non-existent directories
-- Missing creation dates
-
-## Use Cases
-
-### Backup Management
-- Keep recent backups while maintaining historical representation
-- Automate cleanup of backup directories
-- Maintain backup rotation schedules
-
-### Log File Cleanup
-- Prevent log directories from growing too large
-- Keep recent logs while preserving older ones
-- Automate log rotation
-
-### Download Organization
-- Keep recent downloads while maintaining variety
-- Prevent download folders from becoming unwieldy
-- Maintain download history
-
-### Development Artifacts
-- Clean up build artifacts and temporary files
-- Maintain recent development snapshots
-- Organize project backups
-
-## Advanced Usage
-
-### Custom Bases
-
-Different bases affect the algorithm's behavior:
-
-```bash
-# Binary (base 2) - most aggressive pruning
-swift run sukashi /path --base 2 --retain 5
-
-# Decimal (base 10) - balanced approach  
-swift run sukashi /path --base 10 --retain 10
-
-# Hexadecimal (base 16) - more conservative
-swift run sukashi /path --base 16 --retain 20
-```
-
-### Verbose Output
-
-See the algorithm in action:
-
-```bash
-swift run sukashi /path --verbose --dry-run
-```
-
-Output includes:
-- Item creation dates
-- Tree representation
-- Algorithm parameters
-- Retention decisions
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-```bash
-# Clone and setup
-git clone https://github.com/your-username/hasami.git
-cd hasami
-
-# Build and test
-swift build
-swift test
-
-# Run with development version
-swift run sukashi --help
-```
+Items are moved to macOS Trash by default (not permanently deleted). Use `--force-delete` for network volumes where Trash is not available.
 
 ## Documentation
 
 - [Man Page](sukashi.1.md) - Complete command reference
-- [API Documentation](docs/) - Library documentation
-- [Algorithm Details](docs/algorithm.md) - Technical implementation
+- [Algorithm Specification](docs/backup-pruning-algorithm.md) - Full algorithm details
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Inspired by Japanese bonsai pruning techniques
-- Built with Swift and the ArgumentParser framework
-- Uses swift-collections for efficient data structures
-
----
-
-**Hasami** - Where precision meets pruning 🌸✂️ 
