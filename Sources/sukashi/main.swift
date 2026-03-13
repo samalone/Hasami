@@ -60,6 +60,10 @@ struct SukashiCommand: ParsableCommand {
     @Flag(name: .long, help: "Force immediate deletion instead of moving to Trash (useful for network volumes)")
     var forceDelete: Bool = false
 
+    private var itemType: String {
+        filesOnly ? "files" : (directoriesOnly ? "directories" : "items")
+    }
+
     func run() throws {
         // Validate conflicting flags
         if filesOnly && directoriesOnly {
@@ -80,13 +84,11 @@ struct SukashiCommand: ParsableCommand {
         let backupItems = try getBackupItems(at: url)
 
         if backupItems.isEmpty {
-            let itemType = filesOnly ? "files" : (directoriesOnly ? "directories" : "items")
             print("No backup \(itemType) found in '\(backupDirectory)'")
             return
         }
 
         if verbose {
-            let itemType = filesOnly ? "files" : (directoriesOnly ? "directories" : "items")
             print("Found \(backupItems.count) backup \(itemType):")
             for (name, date) in backupItems {
                 print("  \(name) (created: \(formatDate(date)))")
@@ -95,12 +97,16 @@ struct SukashiCommand: ParsableCommand {
         }
 
         // Convert creation dates to TimeCodes (seconds since Unix epoch)
-        let timeCodes = backupItems.map { (name, date) in
-            (name: name, timeCode: TimeCode(date: date))
+        var timeCodeForDate: [Date: TimeCode] = [:]
+        let timeCodes = backupItems.map { (name, date) -> TimeCode in
+            if let existing = timeCodeForDate[date] { return existing }
+            let tc = TimeCode(date: date)
+            timeCodeForDate[date] = tc
+            return tc
         }
 
         // Create BackupTree and run pruning algorithm
-        let tree = BackupTree(timeCodes: timeCodes.map { $0.timeCode })
+        let tree = BackupTree(timeCodes: timeCodes)
         let now = TimeCode(date: Date())
         let retained = tree.retainedBackups(now: now, radix: effectiveRadix, slotDuration: slotDuration, keepCount: retain)
         let retainedSet = Set(retained)
@@ -115,7 +121,7 @@ struct SukashiCommand: ParsableCommand {
         var deletedItems: [(String, Date)] = []
 
         for (name, date) in backupItems {
-            let timeCode = TimeCode(date: date)
+            let timeCode = timeCodeForDate[date] ?? TimeCode(date: date)
             if retainedSet.contains(timeCode) {
                 retainedItems.append((name, date))
             } else {
@@ -133,7 +139,6 @@ struct SukashiCommand: ParsableCommand {
         }
 
         // Print results
-        let itemType = filesOnly ? "files" : (directoriesOnly ? "directories" : "items")
         let actionVerb = dryRun ? "WOULD RETAIN" : "RETAINING"
         print("\(actionVerb) (\(retainedItems.count) \(itemType)):")
         for (name, date) in retainedItems {
@@ -159,16 +164,13 @@ struct SukashiCommand: ParsableCommand {
                 do {
                     if forceDelete {
                         try FileManager.default.removeItem(at: itemURL)
-                        successCount += 1
-                        if verbose {
-                            print("  Moved \(name) to Trash")
-                        }
                     } else {
                         try FileManager.default.trashItem(at: itemURL, resultingItemURL: nil)
-                        successCount += 1
-                        if verbose {
-                            print("  Moved \(name) to Trash")
-                        }
+                    }
+                    successCount += 1
+                    if verbose {
+                        let verb = forceDelete ? "Deleted" : "Moved to Trash"
+                        print("  \(verb): \(name)")
                     }
                 } catch {
                     let errorAction = forceDelete ? "delete" : "move to Trash"
@@ -231,10 +233,14 @@ struct SukashiCommand: ParsableCommand {
         return backupItems
     }
 
-    private func formatDate(_ date: Date) -> String {
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .medium
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private func formatDate(_ date: Date) -> String {
+        Self.dateFormatter.string(from: date)
     }
 }

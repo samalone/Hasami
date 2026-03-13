@@ -18,6 +18,10 @@ public struct BackupTree: Equatable {
         self.timeCodes = SortedSet(timeCodes)
     }
 
+    private init(sortedSet: SortedSet<TimeCode>) {
+        self.timeCodes = sortedSet
+    }
+
     /// Returns the TimeCodes in the tree.
     public var backups: [TimeCode] {
         return Array(timeCodes)
@@ -38,49 +42,35 @@ public struct BackupTree: Equatable {
         return timeCodes.first
     }
 
+    private func applying(_ mutation: (inout SortedSet<TimeCode>) -> Void) -> BackupTree {
+        var copy = timeCodes
+        mutation(&copy)
+        return BackupTree(sortedSet: copy)
+    }
+
     /// Adds a new backup to the tree, maintaining the sorted order.
-    /// - Parameter backup: The TimeCode to add
-    /// - Returns: A new BackupTree with the added backup
     public func adding(_ backup: TimeCode) -> BackupTree {
-        var newTimeCodes = timeCodes
-        newTimeCodes.insert(backup)
-        return BackupTree(timeCodes: Array(newTimeCodes))
+        applying { $0.insert(backup) }
     }
 
     /// Returns a new BackupTree containing the union of this tree and another.
-    /// - Parameter other: The other BackupTree to union with
-    /// - Returns: A new BackupTree containing all backups from both trees
     public func union(_ other: BackupTree) -> BackupTree {
-        var newTimeCodes = timeCodes
-        newTimeCodes.formUnion(other.timeCodes)
-        return BackupTree(timeCodes: Array(newTimeCodes))
+        applying { $0.formUnion(other.timeCodes) }
     }
 
     /// Returns a new BackupTree containing the intersection of this tree and another.
-    /// - Parameter other: The other BackupTree to intersect with
-    /// - Returns: A new BackupTree containing only backups present in both trees
     public func intersection(_ other: BackupTree) -> BackupTree {
-        var newTimeCodes = timeCodes
-        newTimeCodes.formIntersection(other.timeCodes)
-        return BackupTree(timeCodes: Array(newTimeCodes))
+        applying { $0.formIntersection(other.timeCodes) }
     }
 
     /// Returns a new BackupTree containing the difference between this tree and another.
-    /// - Parameter other: The other BackupTree to subtract
-    /// - Returns: A new BackupTree containing only backups not present in the other tree
     public func subtracting(_ other: BackupTree) -> BackupTree {
-        var newTimeCodes = timeCodes
-        newTimeCodes.subtract(other.timeCodes)
-        return BackupTree(timeCodes: Array(newTimeCodes))
+        applying { $0.subtract(other.timeCodes) }
     }
 
     /// Returns a new BackupTree containing the symmetric difference between this tree and another.
-    /// - Parameter other: The other BackupTree to compare with
-    /// - Returns: A new BackupTree containing only backups present in exactly one tree
     public func symmetricDifference(_ other: BackupTree) -> BackupTree {
-        var newTimeCodes = timeCodes
-        newTimeCodes.formSymmetricDifference(other.timeCodes)
-        return BackupTree(timeCodes: Array(newTimeCodes))
+        applying { $0.formSymmetricDifference(other.timeCodes) }
     }
 
     /// Returns true if this tree is a subset of another tree.
@@ -122,17 +112,13 @@ extension BackupTree {
             return (0, 0)
         }
 
-        var digits: [Int] = []
+        var tier = 0
+        var reversedValue = 0
         var remaining = age
         while remaining > 0 {
-            digits.append(remaining % radix)
+            reversedValue = reversedValue * radix + (remaining % radix)
             remaining /= radix
-        }
-
-        let tier = digits.count
-        var reversedValue = 0
-        for d in digits {
-            reversedValue = reversedValue * radix + d
+            tier += 1
         }
 
         return (reversedValue, tier)
@@ -175,17 +161,18 @@ extension BackupTree {
             }
         }
 
-        // Step 3 & 4: Sort by priority key, take top keepCount
-        let ranked = bySlot.sorted { a, b in
-            let keyA = Self.priorityKey(age: a.key, radix: radix)
-            let keyB = Self.priorityKey(age: b.key, radix: radix)
-            if keyA.reversedValue != keyB.reversedValue {
-                return keyA.reversedValue < keyB.reversedValue
+        // Step 3 & 4: Pre-compute priority keys, sort, take top keepCount
+        let keyed = bySlot.map { (age, ts) in
+            (key: Self.priorityKey(age: age, radix: radix), timeCode: ts)
+        }
+        let ranked = keyed.sorted { a, b in
+            if a.key.reversedValue != b.key.reversedValue {
+                return a.key.reversedValue < b.key.reversedValue
             }
-            return keyA.tier < keyB.tier
+            return a.key.tier < b.key.tier
         }
 
-        let kept = ranked.prefix(keepCount).map { $0.value }
+        let kept = ranked.prefix(keepCount).map { $0.timeCode }
 
         // Return sorted newest-first
         return kept.sorted { $0.value > $1.value }
