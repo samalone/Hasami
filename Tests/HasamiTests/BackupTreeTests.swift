@@ -53,24 +53,18 @@ struct BackupTreeTests {
     }
 
     @Test func testPriorityKeyBase2() {
-        // Age 1: digits [1], tier 1, reversed = 1
         let k1 = BackupTree.priorityKey(age: 1, radix: 2)
         #expect(k1 == (1, 1))
 
-        // Age 2: binary "10" → digits [0, 1], tier 2
-        // reversed: rv=0, rv=0*2+0=0, rv=0*2+1=1
         let k2 = BackupTree.priorityKey(age: 2, radix: 2)
         #expect(k2 == (1, 2))
 
-        // Age 3: binary "11" → digits [1, 1], tier 2, reversed = 1*2+1 = 3
         let k3 = BackupTree.priorityKey(age: 3, radix: 2)
         #expect(k3 == (3, 2))
 
-        // Age 4: binary "100" → digits [0, 0, 1], tier 3, reversed = 1
         let k4 = BackupTree.priorityKey(age: 4, radix: 2)
         #expect(k4 == (1, 3))
 
-        // Age 8: binary "1000" → digits [0, 0, 0, 1], tier 4, reversed = 1
         let k8 = BackupTree.priorityKey(age: 8, radix: 2)
         #expect(k8 == (1, 4))
     }
@@ -91,82 +85,71 @@ struct BackupTreeTests {
 
     @Test func testEmptyTree() {
         let tree = BackupTree()
-        let result = tree.retainedBackups(now: TimeCode(value: 100), radix: 2, slotDuration: 1, keepCount: 10)
+        let result = tree.retainedBackups(radix: 2, keepCount: 10)
         #expect(result.isEmpty)
     }
 
     @Test func testKeepCountZero() {
         let tree = BackupTree(1, 2, 3)
-        let result = tree.retainedBackups(now: TimeCode(value: 100), radix: 2, slotDuration: 1, keepCount: 0)
+        let result = tree.retainedBackups(radix: 2, keepCount: 0)
         #expect(result.isEmpty)
     }
 
     @Test func testFewerBackupsThanKeepCount() {
         let tree = BackupTree(90, 95, 100)
-        let result = tree.retainedBackups(now: TimeCode(value: 100), radix: 2, slotDuration: 1, keepCount: 10)
+        let result = tree.retainedBackups(radix: 2, keepCount: 10)
         #expect(result.count == 3)
         #expect(Set(result) == Set([TimeCode(value: 90), TimeCode(value: 95), TimeCode(value: 100)]))
     }
 
     @Test func testMostRecentAlwaysRetained() {
-        let now = TimeCode(value: 1000)
+        // Ages are measured from the newest timestamp, so the newest always has
+        // priority key (0, 0) and is always picked first.
         let tree = BackupTree(timeCodes: (900...1000).map { TimeCode(value: $0) })
-        let result = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 1)
+        let result = tree.retainedBackups(radix: 2, keepCount: 1)
         #expect(result == [TimeCode(value: 1000)])
     }
 
-    @Test func testDeduplication() {
-        // With slot_duration=10, backups at 91 and 95 both map to age slot 0
-        // (ages 5 and 9, both / 10 = 0). Only the more recent (95) should survive.
-        let now = TimeCode(value: 100)
-        let tree = BackupTree(91, 95)
-        let result = tree.retainedBackups(now: now, radix: 2, slotDuration: 10, keepCount: 10)
-        #expect(result == [TimeCode(value: 95)])
-    }
-
     @Test func testDeterminism() {
-        let now = TimeCode(value: 1000)
         let tree = BackupTree(timeCodes: (1...180).map { TimeCode(value: $0) })
-        let r1 = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 20)
-        let r2 = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 20)
+        let r1 = tree.retainedBackups(radix: 2, keepCount: 20)
+        let r2 = tree.retainedBackups(radix: 2, keepCount: 20)
         #expect(r1 == r2)
     }
 
     @Test func testRetainedCountMatchesKeepCount() {
-        let now = TimeCode(value: 200)
         let tree = BackupTree(timeCodes: (1...180).map { TimeCode(value: $0) })
-        let result = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 20)
+        let result = tree.retainedBackups(radix: 2, keepCount: 20)
         #expect(result.count == 20)
     }
 
     @Test func testResultSortedNewestFirst() {
-        let now = TimeCode(value: 200)
         let tree = BackupTree(timeCodes: (1...180).map { TimeCode(value: $0) })
-        let result = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 20)
+        let result = tree.retainedBackups(radix: 2, keepCount: 20)
         for i in 0..<(result.count - 1) {
             #expect(result[i].value >= result[i + 1].value)
         }
     }
 
     @Test func testSpecExample() {
-        // From the spec: 180 daily backups, radix 2, keep 20
-        // Expected ages: 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160
-        let now = TimeCode(value: 181)
+        // 180 daily backups (ts=1..180), radix 2, keep 20. Ages are computed
+        // relative to the newest timestamp (180), so expected ages start at 0.
         let tree = BackupTree(timeCodes: (1...180).map { TimeCode(value: $0) })
-        let result = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 20)
+        let result = tree.retainedBackups(radix: 2, keepCount: 20)
 
-        let expectedAges = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160]
-        let expectedTimeCodes = expectedAges.map { TimeCode(value: now.value - $0) }
+        let expectedAges = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128]
+        let maxTs = 180
+        let expectedTimeCodes = expectedAges.map { TimeCode(value: maxTs - $0) }
         #expect(result == expectedTimeCodes)
     }
 
     @Test func testGapsGrowGeometrically() {
-        let now = TimeCode(value: 500)
         let tree = BackupTree(timeCodes: (1...400).map { TimeCode(value: $0) })
-        let result = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 20)
+        let result = tree.retainedBackups(radix: 2, keepCount: 20)
 
-        // Compute ages and gaps
-        let ages = result.map { now.value - $0.value }
+        // Compute ages (relative to newest) and gaps
+        let maxTs = result.first!.value
+        let ages = result.map { maxTs - $0.value }
         var gaps: [Int] = []
         for i in 0..<(ages.count - 1) {
             gaps.append(ages[i + 1] - ages[i])
@@ -179,9 +162,8 @@ struct BackupTreeTests {
     }
 
     @Test func testRadix3() {
-        let now = TimeCode(value: 500)
         let tree = BackupTree(timeCodes: (1...400).map { TimeCode(value: $0) })
-        let result = tree.retainedBackups(now: now, radix: 3, slotDuration: 1, keepCount: 15)
+        let result = tree.retainedBackups(radix: 3, keepCount: 15)
 
         #expect(result.count == 15)
         for i in 0..<(result.count - 1) {
@@ -189,16 +171,16 @@ struct BackupTreeTests {
         }
     }
 
-    @Test func testSlotDurationAffectsDeduplication() {
-        let now = TimeCode(value: 100)
-        let tree = BackupTree(timeCodes: (90...99).map { TimeCode(value: $0) })
-
-        // With slot_duration=1, all 10 are distinct
-        let r1 = tree.retainedBackups(now: now, radix: 2, slotDuration: 1, keepCount: 100)
-        #expect(r1.count == 10)
-
-        // With slot_duration=5, they collapse into fewer slots
-        let r2 = tree.retainedBackups(now: now, radix: 2, slotDuration: 5, keepCount: 100)
-        #expect(r2.count < 10)
+    @Test func testRetentionInvariantToInputOrder() {
+        // Regression for issue #5: the retention set depends only on the input
+        // set, never on wall-clock time or anything else external.
+        let timestamps = [1000, 1001, 1002, 2000, 3500, 7000]
+        let ascending = BackupTree(timeCodes: timestamps.sorted().map { TimeCode(value: $0) })
+        let descending = BackupTree(timeCodes: timestamps.sorted(by: >).map { TimeCode(value: $0) })
+        let r1 = ascending.retainedBackups(radix: 2, keepCount: 3)
+        let r2 = descending.retainedBackups(radix: 2, keepCount: 3)
+        #expect(r1 == r2)
+        // The newest timestamp must always be retained.
+        #expect(r1.contains(TimeCode(value: 7000)))
     }
 }

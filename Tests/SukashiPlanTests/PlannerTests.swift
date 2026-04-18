@@ -83,7 +83,7 @@ struct PlannerParseTests {
 
 struct PlannerPlanTests {
     @Test func emptyInputProducesEmptyResult() {
-        let result = Planner.plan(items: [], now: TimeCode(value: 1000), radix: 2, slotDuration: 1, retain: 10)
+        let result = Planner.plan(items: [], radix: 2, retain: 10)
         #expect(result == PlanResult(keep: [], prune: []))
     }
 
@@ -91,7 +91,7 @@ struct PlannerPlanTests {
         let items: [PlanItem] = (1...50).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let result = Planner.plan(items: items, now: TimeCode(value: 100), radix: 2, slotDuration: 1, retain: 10)
+        let result = Planner.plan(items: items, radix: 2, retain: 10)
         let keepSet = Set(result.keep)
         let pruneSet = Set(result.prune)
         #expect(keepSet.isDisjoint(with: pruneSet))
@@ -103,13 +103,7 @@ struct PlannerPlanTests {
         let items: [PlanItem] = (1...180).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let result = Planner.plan(
-            items: items,
-            now: TimeCode(value: 181),
-            radix: 2,
-            slotDuration: 1,
-            retain: 20
-        )
+        let result = Planner.plan(items: items, radix: 2, retain: 20)
         #expect(result.keep.count == 20)
         #expect(result.prune.count == 160)
     }
@@ -120,71 +114,73 @@ struct PlannerPlanTests {
             PlanItem(timeCode: TimeCode(value: 20), key: "b"),
             PlanItem(timeCode: TimeCode(value: 30), key: "c"),
         ]
-        let result = Planner.plan(items: items, now: TimeCode(value: 30), radix: 2, slotDuration: 1, retain: 10)
+        let result = Planner.plan(items: items, radix: 2, retain: 10)
         #expect(result.output(mode: .keep) == result.keep)
         #expect(result.output(mode: .prune) == result.prune)
     }
 
     @Test func outputPreservesInputOrder() {
-        // Feed items in a non-chronological order and verify keep/prune preserve it.
         let items: [PlanItem] = [
             PlanItem(timeCode: TimeCode(value: 50), key: "mid"),
             PlanItem(timeCode: TimeCode(value: 10), key: "old"),
             PlanItem(timeCode: TimeCode(value: 90), key: "new"),
         ]
-        let result = Planner.plan(items: items, now: TimeCode(value: 100), radix: 2, slotDuration: 1, retain: 3)
+        let result = Planner.plan(items: items, radix: 2, retain: 3)
         #expect(result.keep == ["mid", "old", "new"])
         #expect(result.prune.isEmpty)
     }
 
-    @Test func mostRecentKeyWinsWhenItOccupiesTheZeroSlot() {
-        // When the most recent item lives in age slot 0, its priority key (0, 0)
-        // beats everything else, so retain=1 always picks it.
+    @Test func newestItemAlwaysRetained() {
+        // With ages measured from the max timestamp, the newest item sits at age
+        // 0 and always has the top priority key. retain=1 must pick it.
         let items: [PlanItem] = (1...100).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let result = Planner.plan(items: items, now: TimeCode(value: 100), radix: 2, slotDuration: 1, retain: 1)
+        let result = Planner.plan(items: items, radix: 2, retain: 1)
         #expect(result.keep == ["key-100"])
     }
 
-    @Test func slotDurationDeduplicatesWithinWindow() {
-        // Two items 4 seconds apart with slot-duration 10 fall in the same age slot.
-        // The more recent one (timestamp 95) wins the slot; the other is pruned
-        // even though retain is larger than the input size.
-        let items: [PlanItem] = [
-            PlanItem(timeCode: TimeCode(value: 91), key: "old"),
-            PlanItem(timeCode: TimeCode(value: 95), key: "new"),
-        ]
-        let result = Planner.plan(items: items, now: TimeCode(value: 100), radix: 2, slotDuration: 10, retain: 10)
-        #expect(result.keep == ["new"])
-        #expect(result.prune == ["old"])
-    }
-
-    @Test func ExactTimestampTieResolvesByInputOrder() {
-        // Two items with identical timestamps: the first-seen wins the slot;
-        // the second-seen is pruned.
+    @Test func exactTimestampTieResolvesByInputOrder() {
+        // Two items with identical timestamps collapse: first-seen is kept,
+        // second-seen is pruned.
         let items: [PlanItem] = [
             PlanItem(timeCode: TimeCode(value: 100), key: "first"),
             PlanItem(timeCode: TimeCode(value: 100), key: "second"),
         ]
-        let result = Planner.plan(items: items, now: TimeCode(value: 100), radix: 2, slotDuration: 1, retain: 10)
+        let result = Planner.plan(items: items, radix: 2, retain: 10)
         #expect(result.keep == ["first"])
         #expect(result.prune == ["second"])
     }
 
+    @Test func retentionSetIsInvariantToInputOrder() {
+        // Regression for issue #5: shuffling the input must not change the
+        // retention set.
+        let timestamps = [1000, 1001, 1002, 2000, 3500, 7000]
+        let ascending: [PlanItem] = timestamps.sorted().map {
+            PlanItem(timeCode: TimeCode(value: $0), key: "k-\($0)")
+        }
+        let descending: [PlanItem] = timestamps.sorted(by: >).map {
+            PlanItem(timeCode: TimeCode(value: $0), key: "k-\($0)")
+        }
+        let r1 = Planner.plan(items: ascending, radix: 2, retain: 3)
+        let r2 = Planner.plan(items: descending, radix: 2, retain: 3)
+        #expect(Set(r1.keep) == Set(r2.keep))
+        // Newest is never dropped.
+        #expect(r1.keep.contains("k-7000"))
+        #expect(r2.keep.contains("k-7000"))
+    }
+
     @Test func keepListMatchesCoreAlgorithm() {
-        // The spec example from BackupTreeTests: 180 daily samples, retain 20, radix 2.
-        // keep-mode output should correspond to the exact same ages the core returns.
+        // Spec example: 180 daily samples, retain 20, radix 2. Ages are
+        // measured from max_ts = 180, so expected ages are offsets 0..128.
         let items: [PlanItem] = (1...180).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let now = TimeCode(value: 181)
-        let result = Planner.plan(items: items, now: now, radix: 2, slotDuration: 1, retain: 20)
+        let result = Planner.plan(items: items, radix: 2, retain: 20)
 
-        let expectedAges = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160]
-        let expectedKeys = expectedAges.map { "key-\(now.value - $0)" }
-        // Input is in ascending timestamp order; keep is filtered in that order,
-        // so sort the expectation by timestamp too.
+        let expectedAges = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128]
+        let maxTs = 180
+        let expectedKeys = expectedAges.map { "key-\(maxTs - $0)" }
         #expect(Set(result.keep) == Set(expectedKeys))
         #expect(result.keep.count == 20)
     }

@@ -32,7 +32,7 @@ Uses Swift Testing framework (`import Testing`, `@Test`, `#expect`). Not XCTest.
 ## Key Design Notes
 
 - `BackupTree` is a value type (struct). All mutation methods return new instances.
-- The pruning algorithm lives in `BackupTree.retainedBackups(now:radix:slotDuration:keepCount:)`.
+- The pruning algorithm lives in `BackupTree.retainedBackups(radix:keepCount:)`. Ages are measured from the newest timestamp in the tree; no wall-clock time is consulted.
 - The priority key function is `BackupTree.priorityKey(age:radix:)`.
 - The CLI (`sukashi`) converts file creation dates to `TimeCode` values and feeds them through `BackupTree`.
 - The algorithm spec is documented in `docs/backup-pruning-algorithm.md`.

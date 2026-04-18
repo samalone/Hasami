@@ -74,17 +74,17 @@ swift run sukashi /var/log --files-only --include-hidden --retain 10
 
 ## How It Works
 
-The algorithm computes each backup's age relative to the current time, then assigns a priority key based on radix digit reversal. Sorting by this key interleaves representatives from every time scale (hours, days, weeks, months) before filling in detail at any single scale. The result: recent backups are dense, older backups are sparse, and gaps grow geometrically.
+The algorithm computes each backup's age relative to the newest backup in the set, then assigns a priority key based on radix digit reversal. Sorting by this key interleaves representatives from every time scale (hours, days, weeks, months) before filling in detail at any single scale. The result: recent backups are dense, older backups are sparse, and gaps grow geometrically — and because ages are measured from the newest item, not the wall clock, the output is a pure function of the input.
 
 For the full algorithm specification, see [docs/backup-pruning-algorithm.md](docs/backup-pruning-algorithm.md).
 
 ### Example Distribution
 
-180 daily backups, radix 2, keep 20:
+180 daily backups, radix 2, keep 20 (ages measured from the newest):
 
 ```
-Kept (days ago): 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160
-Gaps (days):     1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32, 32
+Kept (days ago): 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128
+Gaps (days):     1, 1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32
 ```
 
 ## Command Line Options
@@ -96,7 +96,6 @@ Gaps (days):     1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32, 32
 | `-r, --retain <number>` | Items to retain | 10 |
 | `-x, --radix <number>` | Radix for pruning (2 = gaps double, 3 = gaps triple) | 2 |
 | `--base <number>` | Alias for `--radix` | |
-| `--slot-duration <seconds>` | Minimum time resolution for deduplication | 1 |
 | `--dry-run` | Preview without changes | false |
 
 ### Filtering Options

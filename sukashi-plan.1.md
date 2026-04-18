@@ -63,13 +63,6 @@ exactly one of the two modes' output.
   older backups thin out: with radix 2 gaps roughly double, with radix 3
   they roughly triple. Must be at least 2.
 
-- `--slot-duration <seconds>`
-
-  Minimum time resolution in seconds (default: 1). Items whose ages fall in
-  the same slot are deduplicated; the most recent timestamp wins, and if two
-  timestamps tie exactly, the one that appeared first on stdin wins. The
-  losers land in the prune list regardless of `--retain`.
-
 - `-h, --help`
 
   Show help.

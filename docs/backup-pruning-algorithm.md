@@ -7,47 +7,44 @@ This document describes a backup pruning algorithm that selects which backups to
 - It works with backups taken on irregular schedules.
 - It retains more recent backups and progressively fewer older ones, so that the gaps between retained backups grow with age.
 - It is deterministic: given the same set of backups and the same parameters, it always selects the same ones.
-- It is granularity-independent: the slot duration parameter affects only deduplication of very close backups, not the overall distribution of retained backups across time.
+- It consults no wall-clock time. Ages are measured relative to the newest backup in the input, so the output is a pure function of the input set.
 - It is simple to implement: the core is a sort with a custom key function, followed by truncation.
 
 ## Parameters
 
-The algorithm takes three parameters:
+The algorithm takes two parameters:
 
 - **radix** (integer ≥ 2): Controls how aggressively older backups thin out. With radix 2, the gap between retained backups roughly doubles at each step. With radix 3, it roughly triples. Radix 2 is the recommended default.
-- **slot_duration** (time interval): The minimum time resolution. Backups closer together than this are treated as duplicates (only the most recent is kept). This should be set to a value smaller than the minimum expected interval between backups. For example, if backups occur at most once per hour, a slot duration of 1 second or 1 minute is fine.
 - **keep_count** (integer ≥ 0): The maximum number of backups to retain.
 
 ## Algorithm
 
-### Step 1: Compute age in slots
+### Step 1: Compute age relative to the newest backup
 
-For each backup, compute its age relative to the current time (or a reference time), measured in units of `slot_duration`:
+Let `max_ts` be the most recent timestamp in the input set. For each backup, compute:
 
 ```
-age_in_slots = floor((now - backup_timestamp) / slot_duration)
+age = max_ts - backup_timestamp
 ```
 
-### Step 2: Deduplicate
+The newest backup has age 0 and always receives priority key `(0, 0)`, so it is always retained (given `keep_count ≥ 1`). No reference to the current wall-clock time is needed.
 
-If multiple backups map to the same `age_in_slots` value, keep only the one with the most recent timestamp. Discard the rest before proceeding.
+### Step 2: Compute priority key
 
-### Step 3: Compute priority key
+For each backup, compute a priority key from its `age` value. The key is a tuple `(reversed_value, tier)` computed as follows:
 
-For each remaining backup, compute a priority key from its `age_in_slots` value. The key is a tuple `(reversed_value, tier)` computed as follows:
-
-1. If `age_in_slots` is 0, the key is `(0, 0)`.
-2. Otherwise, extract the digits of `age_in_slots` in the given radix by repeated division:
+1. If `age` is 0, the key is `(0, 0)`.
+2. Otherwise, extract the digits of `age` in the given radix by repeated division:
 
 ```
 digits = []
-remaining = age_in_slots
+remaining = age
 while remaining > 0:
     digits.append(remaining % radix)
     remaining = remaining / radix   (integer division)
 ```
 
-3. The **tier** is the number of digits extracted (i.e., the length of the `digits` list). This equals `floor(log_radix(age_in_slots)) + 1`.
+3. The **tier** is the number of digits extracted (i.e., the length of the `digits` list). This equals `floor(log_radix(age)) + 1`.
 
 4. The **reversed value** is obtained by interpreting the extracted digits (which are in LSB-first order) as a base-N number:
 
@@ -61,9 +58,9 @@ Note: Because the digit extraction via `% radix` / `/ radix` naturally produces 
 
 5. The priority key is the tuple `(reversed_value, tier)`.
 
-### Step 4: Sort and select
+### Step 3: Sort and select
 
-Sort all deduplicated backups by their priority key in ascending order (comparing `reversed_value` first, then `tier` as a tiebreaker). Retain the first `keep_count` entries. Discard the rest.
+Sort all backups by their priority key in ascending order (comparing `reversed_value` first, then `tier` as a tiebreaker). Retain the first `keep_count` entries. Discard the rest.
 
 ## Why (reversed_value, tier) and not (tier, reversed_value)
 
@@ -93,18 +90,18 @@ Because `reversed_value` is the primary sort key, all ages with the same reverse
 - The next ~`T` picks double the resolution within each tier.
 - Each subsequent round of ~`T` picks doubles the resolution again.
 
-This produces gaps between retained backups that grow geometrically with age, regardless of the total time span or the slot duration.
+This produces gaps between retained backups that grow geometrically with age, regardless of the total time span.
 
 ### Example
 
-180 daily backups over 6 months, base 2, keep 20:
+180 daily backups over 6 months, base 2, keep 20 (ages are measured from the newest backup):
 
 ```
-Kept (days): 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160
-Gaps (days): 1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32, 32
+Kept (days ago): 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128
+Gaps (days):     1, 1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32
 ```
 
-The gaps double roughly every three steps (because each "round" of interleaving contributes about `log2(180/slot_count)` picks across the occupied tiers). Recent backups are daily; the oldest gap is 32 days.
+The gaps double roughly every three steps (because each "round" of interleaving contributes about `log2(N)` picks across the occupied tiers). Recent backups are daily; the oldest gap is 32 days.
 
 ## Tree interpretation
 
@@ -120,11 +117,11 @@ This means "keep the first X backups" is equivalent to "do a BFS of the priority
 
 ## Handling edge cases
 
-- **Age 0** (a backup taken at exactly the reference time): Gets priority key `(0, 0)`, which sorts before everything else. It will always be retained if present.
+- **Age 0** (the newest backup in the set): Gets priority key `(0, 0)`, which sorts before everything else. It is always retained.
 - **Very large ages**: The algorithm handles arbitrarily large ages. The tier count grows logarithmically with the maximum age, and the interleaving ensures budget is distributed across all tiers regardless.
 - **Fewer backups than keep_count**: All backups are retained. No pruning occurs.
 - **Empty input**: Returns an empty list.
-- **Duplicate timestamps**: The deduplication step (step 2) handles this by keeping only the most recent backup per slot.
+- **Duplicate timestamps**: Duplicates collapse to a single entry before ranking. Callers that attach metadata to each timestamp (e.g., the `sukashi-plan` CLI, which maps keys to timestamps) decide which duplicate to keep; the algorithm itself only sees the set of distinct timestamps.
 
 ## Reference implementation (Python)
 
@@ -145,22 +142,15 @@ def priority_key(age: int, radix: int) -> tuple[int, int]:
 
 
 def select_backups_to_keep(
-    backup_timestamps: list,  # list of datetime objects
-    now,                      # datetime: the reference time
+    backup_timestamps: list,  # list of distinct timestamps
     radix: int,               # base for the priority calculation
-    slot_duration: float,     # slot size in seconds
     keep_count: int,          # max backups to retain
 ) -> list:
-    # Step 1 & 2: Compute ages and deduplicate
-    by_slot = {}
-    for ts in backup_timestamps:
-        age = max(0, int((now - ts).total_seconds() / slot_duration))
-        if age not in by_slot or ts > by_slot[age]:
-            by_slot[age] = ts
-
-    # Step 3 & 4: Sort by priority key, take top keep_count
-    ranked = sorted(by_slot.items(), key=lambda pair: priority_key(pair[0], radix))
-    kept_timestamps = [ts for age, ts in ranked[:keep_count]]
-
+    if not backup_timestamps:
+        return []
+    max_ts = max(backup_timestamps)
+    keyed = [(priority_key(max_ts - ts, radix), ts) for ts in backup_timestamps]
+    ranked = sorted(keyed, key=lambda pair: pair[0])
+    kept_timestamps = [ts for _, ts in ranked[:keep_count]]
     return sorted(kept_timestamps, reverse=True)  # newest first
 ```
