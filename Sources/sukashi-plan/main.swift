@@ -21,9 +21,10 @@ struct SukashiPlanCommand: ParsableCommand {
         one, so a retain list cannot accidentally be piped into a delete command.
 
         Keys are treated as opaque strings and emitted in the order they appeared
-        on stdin. Items whose timestamps fall within --slot-duration of each other
-        are deduplicated (most recent wins, first-in-input breaks ties) and the
-        non-representative duplicates always land in the prune list.
+        on stdin. Items that share a timestamp collapse to a single representative
+        (first-in-input wins); the non-representative duplicates always land in
+        the prune list. The planner consults no wall-clock time, so the output is
+        a pure function of the input set.
         """
     )
 
@@ -36,18 +37,12 @@ struct SukashiPlanCommand: ParsableCommand {
     @Option(name: [.long, .customShort("x")], help: "Radix for the pruning algorithm.")
     var radix: Int = 2
 
-    @Option(name: .long, help: "Slot duration in seconds (deduplication window).")
-    var slotDuration: Int = 1
-
     func validate() throws {
         if retain < 0 {
             throw ValidationError("--retain must be non-negative")
         }
         if radix < 2 {
             throw ValidationError("--radix must be at least 2")
-        }
-        if slotDuration < 1 {
-            throw ValidationError("--slot-duration must be at least 1")
         }
     }
 
@@ -61,12 +56,9 @@ struct SukashiPlanCommand: ParsableCommand {
             throw ExitCode(65)
         }
 
-        let now = TimeCode(date: Date())
         let result = Planner.plan(
             items: items,
-            now: now,
             radix: radix,
-            slotDuration: slotDuration,
             retain: retain
         )
 

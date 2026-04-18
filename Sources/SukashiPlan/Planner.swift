@@ -100,53 +100,37 @@ public enum Planner {
     /// Runs the Hasami retention algorithm against `items` and partitions the input
     /// into keep/prune lists.
     ///
-    /// Items whose timestamps collide within `slotDuration` are deduplicated exactly
-    /// the way `sukashi` does it — the most recent timestamp in a slot represents the
-    /// slot. When two items tie on timestamp, the one that appeared *first* in the
-    /// input wins, so the partition is deterministic for any given input ordering.
-    /// Non-representative duplicates always land in the prune list.
+    /// Items that share a timestamp collapse to a single representative: the first
+    /// one seen in input order wins, and the others always land in the prune list.
+    /// The planner consults no wall-clock time; the result is a pure function of
+    /// the input set.
     public static func plan(
         items: [PlanItem],
-        now: TimeCode,
         radix: Int,
-        slotDuration: Int,
         retain: Int
     ) -> PlanResult {
         precondition(radix >= 2, "Radix must be at least 2")
-        precondition(slotDuration >= 1, "Slot duration must be at least 1")
         precondition(retain >= 0, "Retain count must be non-negative")
 
         if items.isEmpty {
             return PlanResult(keep: [], prune: [])
         }
 
-        // For each age slot, pick a representative: highest timestamp wins;
-        // ties resolved by first-in-input order.
-        var repByAge: [Int: (index: Int, timeCode: TimeCode)] = [:]
+        var repByTs: [Int: Int] = [:]
         for (idx, item) in items.enumerated() {
-            let age = max(0, (now.value - item.timeCode.value) / slotDuration)
-            if let current = repByAge[age] {
-                if item.timeCode.value > current.timeCode.value {
-                    repByAge[age] = (idx, item.timeCode)
-                }
-            } else {
-                repByAge[age] = (idx, item.timeCode)
+            if repByTs[item.timeCode.value] == nil {
+                repByTs[item.timeCode.value] = idx
             }
         }
 
-        let representativeTimeCodes = repByAge.values.map { $0.timeCode }
+        let representativeTimeCodes = repByTs.keys.map { TimeCode(value: $0) }
         let tree = BackupTree(timeCodes: representativeTimeCodes)
-        let retained = tree.retainedBackups(
-            now: now,
-            radix: radix,
-            slotDuration: slotDuration,
-            keepCount: retain
-        )
+        let retained = tree.retainedBackups(radix: radix, keepCount: retain)
         let retainedTimeCodes = Set(retained)
 
         var keptIndices: Set<Int> = []
-        for (_, rep) in repByAge where retainedTimeCodes.contains(rep.timeCode) {
-            keptIndices.insert(rep.index)
+        for (ts, idx) in repByTs where retainedTimeCodes.contains(TimeCode(value: ts)) {
+            keptIndices.insert(idx)
         }
 
         var keep: [String] = []

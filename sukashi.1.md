@@ -40,11 +40,6 @@ top N are kept. This produces well-spaced representatives across all time scales
 - `--base <number>`
   - Alias for `--radix` (for backward compatibility)
 
-- `--slot-duration <seconds>`
-  - Minimum time resolution in seconds (default: 1)
-  - Backups closer together than this are deduplicated (most recent kept)
-  - Set to a value smaller than the minimum expected interval between backups
-
 ### Filtering Options
 
 - `--files-only`
@@ -100,6 +95,7 @@ sukashi /path/to/backups --dry-run --verbose
 
 ### File Type Filtering
 
+
 ```bash
 # Process only files
 sukashi /path/to/logs --files-only --retain 5
@@ -117,8 +113,8 @@ sukashi /path/to/development --include-hidden --retain 8
 # Network volume: force delete instead of Trash
 sukashi /Volumes/NAS/backups --force-delete --retain 20
 
-# Hourly backups with 1-minute deduplication window
-sukashi /path/to/hourly --slot-duration 60 --retain 30
+# Radix 3 thins older backups more aggressively
+sukashi /path/to/backups --radix 3 --retain 30
 
 # Safe testing with dry run
 sukashi /important/backups --dry-run --verbose --retain 5
@@ -129,22 +125,20 @@ sukashi /important/backups --dry-run --verbose --retain 5
 The sukashi algorithm works as follows:
 
 1. **Age Computation**: Each item's creation timestamp is converted to an age
-   relative to the current time, measured in units of `slot_duration`.
+   relative to the newest timestamp in the set. The newest item has age 0.
 
-2. **Deduplication**: If multiple items map to the same age slot, only the most
-   recent is kept.
-
-3. **Priority Key**: Each age is converted to a priority key `(reversed_value,
+2. **Priority Key**: Each age is converted to a priority key `(reversed_value,
    tier)` by extracting digits in the given radix, counting them (tier), and
    reversing their order (reversed_value).
 
-4. **Selection**: Items are sorted by priority key (ascending) and the first
+3. **Selection**: Items are sorted by priority key (ascending) and the first
    `retain` items are kept.
 
 This produces a distribution where:
-- The most recent backup (age 0) always has highest priority
+- The newest backup (age 0) always has highest priority and is always retained
 - Each "round" of selection picks one representative from each time tier
 - Gaps between retained backups grow geometrically with age
+- No wall-clock time is consulted — the output is a pure function of the input
 
 ## BEHAVIOR
 
@@ -153,7 +147,7 @@ This produces a distribution where:
 - Processes all non-hidden files and directories
 - Sorts output alphabetically by name
 - Moves unwanted items to macOS Trash (not permanent deletion)
-- Uses radix 2 with slot duration 1 second
+- Uses radix 2
 - Retains 10 items by default
 
 ### Output Format

@@ -102,7 +102,7 @@ extension BackupTree {
     /// consumes the budget.
     ///
     /// - Parameters:
-    ///   - age: The age of the backup in slots (must be >= 0)
+    ///   - age: The age of the backup, in the same units as the timestamps (must be >= 0)
     ///   - radix: The radix for digit extraction (must be >= 2)
     /// - Returns: A tuple `(reversedValue, tier)` for sorting
     public static func priorityKey(age: Int, radix: Int) -> (reversedValue: Int, tier: Int) {
@@ -126,44 +126,27 @@ extension BackupTree {
 
     /// Selects which backups to retain using the radix-based priority selection algorithm.
     ///
-    /// The algorithm:
-    /// 1. Computes each backup's age relative to `now`, measured in `slotDuration` units.
-    /// 2. Deduplicates: if multiple backups map to the same age slot, keeps only the most recent.
-    /// 3. Ranks backups by a priority key that interleaves across exponentially-growing time tiers.
-    /// 4. Returns the top `keepCount` backups, sorted newest-first.
+    /// Ages are computed relative to the most recent backup in the tree, so the
+    /// newest item is always at age 0 and always retained (given `keepCount >= 1`).
+    /// The result is a pure function of the stored timestamps — no wall-clock time
+    /// is consulted.
     ///
     /// - Parameters:
-    ///   - now: The reference time for computing ages
     ///   - radix: Controls how aggressively older backups thin out (>= 2, default 2)
-    ///   - slotDuration: Minimum time resolution in seconds. Backups closer than this are deduplicated.
     ///   - keepCount: Maximum number of backups to retain
     /// - Returns: The backups to retain, sorted newest-first
-    /// - Precondition: radix >= 2 && slotDuration >= 1 && keepCount >= 0
-    public func retainedBackups(now: TimeCode, radix: Int, slotDuration: Int, keepCount: Int) -> [TimeCode] {
+    /// - Precondition: radix >= 2 && keepCount >= 0
+    public func retainedBackups(radix: Int, keepCount: Int) -> [TimeCode] {
         precondition(radix >= 2, "Radix must be at least 2")
-        precondition(slotDuration >= 1, "Slot duration must be at least 1")
         precondition(keepCount >= 0, "Keep count must be non-negative")
 
-        if timeCodes.isEmpty || keepCount == 0 {
+        guard let maxTs = timeCodes.last, keepCount > 0 else {
             return []
         }
 
-        // Step 1 & 2: Compute ages and deduplicate (keep most recent per slot)
-        var bySlot: [Int: TimeCode] = [:]
-        for ts in timeCodes {
-            let age = max(0, (now.value - ts.value) / slotDuration)
-            if let existing = bySlot[age] {
-                if ts.value > existing.value {
-                    bySlot[age] = ts
-                }
-            } else {
-                bySlot[age] = ts
-            }
-        }
-
-        // Step 3 & 4: Pre-compute priority keys, sort, take top keepCount
-        let keyed = bySlot.map { (age, ts) in
-            (key: Self.priorityKey(age: age, radix: radix), timeCode: ts)
+        let keyed = timeCodes.map { ts -> (key: (reversedValue: Int, tier: Int), timeCode: TimeCode) in
+            let age = maxTs.value - ts.value
+            return (key: Self.priorityKey(age: age, radix: radix), timeCode: ts)
         }
         let ranked = keyed.sorted { a, b in
             if a.key.reversedValue != b.key.reversedValue {
@@ -174,7 +157,6 @@ extension BackupTree {
 
         let kept = ranked.prefix(keepCount).map { $0.timeCode }
 
-        // Return sorted newest-first
         return kept.sorted { $0.value > $1.value }
     }
 }

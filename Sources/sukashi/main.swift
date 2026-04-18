@@ -36,9 +36,6 @@ struct SukashiCommand: ParsableCommand {
     @Option(name: .long, help: "Radix for the pruning algorithm (alias for --radix)")
     var base: Int?
 
-    @Option(name: .long, help: "Slot duration in seconds (minimum time resolution for deduplication)")
-    var slotDuration: Int = 1
-
     @Flag(name: .shortAndLong, help: "Show verbose output with algorithm details")
     var verbose: Bool = false
 
@@ -107,12 +104,11 @@ struct SukashiCommand: ParsableCommand {
 
         // Create BackupTree and run pruning algorithm
         let tree = BackupTree(timeCodes: timeCodes)
-        let now = TimeCode(date: Date())
-        let retained = tree.retainedBackups(now: now, radix: effectiveRadix, slotDuration: slotDuration, keepCount: retain)
+        let retained = tree.retainedBackups(radix: effectiveRadix, keepCount: retain)
         let retainedSet = Set(retained)
 
         if verbose {
-            print("Pruning algorithm (radix \(effectiveRadix), retain \(retain), slot duration \(slotDuration)s):")
+            print("Pruning algorithm (radix \(effectiveRadix), retain \(retain)):")
             print()
         }
 
