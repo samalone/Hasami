@@ -178,6 +178,9 @@ WOULD MOVE TO TRASH (2 items):
 
 ## SEE ALSO
 
+- `sukashi-plan(1)` - stdin/stdout variant of the same algorithm for pruning
+  non-filesystem collections (cloud object storage, database rows, anything
+  keyed by timestamp).
 - `rm(1)` - Remove files and directories
 - `find(1)` - Find files by criteria
 - [Algorithm Specification](docs/backup-pruning-algorithm.md)
