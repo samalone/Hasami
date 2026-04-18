@@ -18,7 +18,8 @@ swift test
 swift run sukashi --help
 ```
 
-Requires macOS 13+ and Swift 5.9+.
+Requires macOS 13+ and Swift 5.10+ (the test suite uses swift-testing, which
+ships with Swift 5.10 and later).
 
 ## Dependencies
 
