@@ -65,7 +65,7 @@ public enum Planner {
         var lineNumber = 0
         for rawLine in lines {
             lineNumber += 1
-            let line = rawLine.hasSuffix("\n") ? String(rawLine.dropLast()) : rawLine
+            let line = rawLine.trimmingCharacters(in: .newlines)
             if line.isEmpty { continue }
 
             guard let tabIdx = line.firstIndex(of: "\t") else {

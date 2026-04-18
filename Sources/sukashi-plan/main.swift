@@ -70,9 +70,8 @@ struct SukashiPlanCommand: ParsableCommand {
             retain: retain
         )
 
-        let out = FileHandle.standardOutput
         for key in result.output(mode: mode) {
-            out.write(Data((key + "\n").utf8))
+            print(key)
         }
     }
 }

@@ -38,6 +38,14 @@ struct PlannerParseTests {
         #expect(items == [PlanItem(timeCode: TimeCode(value: 100), key: "a")])
     }
 
+    @Test func stripsTrailingCRLF() throws {
+        // CRLF-terminated lines should parse identically to LF-terminated ones,
+        // so callers on Windows or piping through tools that emit CRLF don't
+        // leave a stray \r at the end of the key.
+        let items = try Planner.parse(lines: ["100\ta\r\n"])
+        #expect(items == [PlanItem(timeCode: TimeCode(value: 100), key: "a")])
+    }
+
     @Test func rejectsMissingTab() {
         #expect(throws: PlanParseError.self) {
             try Planner.parse(lines: ["not-a-valid-line"])
