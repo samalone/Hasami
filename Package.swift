@@ -16,6 +16,9 @@ let package = Package(
         .executable(
             name: "sukashi",
             targets: ["sukashi"]),
+        .executable(
+            name: "sukashi-plan",
+            targets: ["sukashi-plan"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-collections.git", branch: "main"),
@@ -35,8 +38,20 @@ let package = Package(
                 "Hasami",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]),
+        .target(
+            name: "SukashiPlan",
+            dependencies: ["Hasami"]),
+        .executableTarget(
+            name: "sukashi-plan",
+            dependencies: [
+                "SukashiPlan",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ]),
         .testTarget(
             name: "HasamiTests",
             dependencies: ["Hasami"]),
+        .testTarget(
+            name: "SukashiPlanTests",
+            dependencies: ["SukashiPlan"]),
     ]
 )

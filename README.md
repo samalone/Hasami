@@ -4,6 +4,16 @@
 
 Hasami is a Swift utility that implements the sukashi (透かし) algorithm for intelligent filesystem pruning. Like pruning a bonsai tree to let light through, Hasami carefully thins collections of files and directories, retaining more recent backups and progressively fewer older ones so that gaps between retained backups grow geometrically with age.
 
+The project ships two executables that share the same `Hasami` library:
+
+- **`sukashi`** — prunes a local directory, reading creation dates from the
+  filesystem and moving unwanted items to the macOS Trash (or force-deleting
+  them). This is the right tool for on-disk backup pruning.
+- **`sukashi-plan`** — reads `<unix-timestamp><TAB><key>` lines from stdin and
+  writes the keep-list or prune-list to stdout. It has no filesystem or
+  platform dependencies, so it composes into Unix pipelines to prune cloud
+  object storage, database rows, or anything else keyed by timestamp.
+
 ## What is Sukashi?
 
 Sukashi (透かし) means "thinning" or "letting light through" in Japanese gardening. The algorithm uses radix-based priority selection to rank backups by age, producing a distribution where recent backups are kept densely and older backups are kept at exponentially increasing intervals.
@@ -124,9 +134,29 @@ swift run sukashi /important/data --dry-run --verbose
 
 Items are moved to macOS Trash by default (not permanently deleted). Use `--force-delete` for network volumes where Trash is not available.
 
+## Pipeline Pruning with `sukashi-plan`
+
+For pruning collections that aren't rooted in the filesystem, use
+`sukashi-plan`. It reads `<unix-timestamp><TAB><key>` lines on stdin and emits
+either the keep-list or the prune-list on stdout, governed by a required
+`--mode` flag.
+
+```bash
+# Prune dated S3 prefixes, keeping 30, via rclone
+rclone lsjson ess:ess-backups/snapshots/ --dirs-only \
+  | jq -r '.[] | "\(.ModTime | fromdateiso8601)\t\(.Name)"' \
+  | sukashi-plan --retain 30 --radix 2 --mode prune \
+  | xargs -r -I{} rclone purge "ess:ess-backups/snapshots/{}"
+```
+
+There is no default for `--mode`: the caller must pick `keep` or `prune` each
+invocation. That friction is deliberate — it prevents accidentally piping a
+retain-list into a delete command.
+
 ## Documentation
 
-- [Man Page](sukashi.1.md) - Complete command reference
+- [sukashi man page](sukashi.1.md) - Filesystem pruning command reference
+- [sukashi-plan man page](sukashi-plan.1.md) - Pipeline pruning command reference
 - [Algorithm Specification](docs/backup-pruning-algorithm.md) - Full algorithm details
 
 ## License
