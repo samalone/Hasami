@@ -22,6 +22,23 @@ swift run sukashi --help
 Requires macOS 13+ and Swift 6.0+ (the test suite uses swift-testing, which
 ships with Swift 6.0 and later).
 
+**`swift test` needs a full Xcode toolchain, not the standalone Command Line
+Tools.** The CLT ships the Swift Testing module and runtime but does not put them
+on SwiftPM's default search paths, so a bare `swift test` under CLT fails with
+`no such module 'Testing'` (still broken as of CLT 26.6 / Swift 6.3.3; the Swift
+team has acknowledged the SwiftPM fix has not landed in CLT). `swift build` and
+the executables work fine under CLT — only the test step is affected. To run
+tests, either point at a full Xcode (`sudo xcode-select -s /Applications/Xcode*.app`)
+or set `DEVELOPER_DIR` for the command, e.g.:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+```
+
+`scripts/release.sh` handles this automatically: if the active toolchain is the
+CLT, it falls back to the newest installed non-beta Xcode for the build/test
+step.
+
 ## Dependencies
 
 - [swift-collections](https://github.com/apple/swift-collections) (SortedCollections) — used for `SortedSet` in `BackupTree`
