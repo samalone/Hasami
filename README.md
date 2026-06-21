@@ -2,7 +2,7 @@
 
 **Intelligent Filesystem Pruning with Japanese Precision**
 
-Hasami is a Swift utility that implements the sukashi (透かし) algorithm for intelligent filesystem pruning. Like pruning a bonsai tree to let light through, Hasami carefully thins collections of files and directories, retaining more recent backups and progressively fewer older ones so that gaps between retained backups grow geometrically with age.
+Hasami is a Swift utility that implements the sukashi (透かし) algorithm for intelligent filesystem pruning. Like pruning a bonsai tree to let light through, Hasami carefully thins collections of files and directories, fitting the retained backups to an exponential-decay curve: recent backups are kept densely, and the spacing between retained backups grows with age.
 
 The project ships two executables that share the same `Hasami` library:
 
@@ -16,7 +16,7 @@ The project ships two executables that share the same `Hasami` library:
 
 ## What is Sukashi?
 
-Sukashi (透かし) means "thinning" or "letting light through" in Japanese gardening. The algorithm uses radix-based priority selection to rank backups by age, producing a distribution where recent backups are kept densely and older backups are kept at exponentially increasing intervals.
+Sukashi (透かし) means "thinning" or "letting light through" in Japanese gardening. The algorithm warps each backup's age into a coordinate where the target retention density is uniform, then greedily removes the most redundant backups, producing a distribution where recent backups are kept densely and older backups are kept at exponentially increasing intervals.
 
 ### Key Features
 
@@ -24,7 +24,7 @@ Sukashi (透かし) means "thinning" or "letting light through" in Japanese gard
 - **Works with irregular schedules**: No assumption about backup frequency
 - **Safe**: Moves to macOS Trash by default, not permanent deletion
 - **Flexible**: Works with files, directories, or both
-- **Simple**: The core is a sort with a custom key function, followed by truncation
+- **Exact count**: Keeps precisely the requested number of backups, with no fractional-budget rounding
 
 ## Quick Start
 
@@ -46,8 +46,8 @@ swift run sukashi /path/to/backups
 # See what would happen first
 swift run sukashi /path/to/backups --dry-run --verbose
 
-# Custom retention and radix
-swift run sukashi /path/to/backups --retain 20 --radix 3
+# Custom retention with an absolute 2-week half-life
+swift run sukashi /path/to/backups --retain 20 --half-life 2w
 ```
 
 ## Examples
@@ -74,17 +74,19 @@ swift run sukashi /var/log --files-only --include-hidden --retain 10
 
 ## How It Works
 
-The algorithm computes each backup's age relative to the newest backup in the set, then assigns a priority key based on radix digit reversal. Sorting by this key interleaves representatives from every time scale (hours, days, weeks, months) before filling in detail at any single scale. The result: recent backups are dense, older backups are sparse, and gaps grow geometrically — and because ages are measured from the newest item, not the wall clock, the output is a pure function of the input.
+The algorithm computes each backup's age relative to the newest backup in the set, then warps that age through the retention curve's CDF, `u(t) = 1 − 2^(−t/H)`, into a coordinate where the target density is uniform. It then greedily removes the most redundant backup — the one whose neighbors are closest in `u` — until exactly `--retain` remain, always keeping the newest and oldest. The result: recent backups are dense, older backups are sparse, and gaps grow with age — and because ages are measured from the newest item, not the wall clock, the output is a pure function of the input.
+
+The half-life `H` can be set as an absolute duration (`--half-life 30d`) or as a fraction of the history span (`--half-lives 4`, meaning `span/4`, which is scale-free and the default).
 
 For the full algorithm specification, see [docs/backup-pruning-algorithm.md](docs/backup-pruning-algorithm.md).
 
 ### Example Distribution
 
-180 daily backups, radix 2, keep 20 (ages measured from the newest):
+180 daily backups, half-life = span/4, keep 20 (ages in days, measured from the newest):
 
 ```
-Kept (days ago): 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128
-Gaps (days):     1, 1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32
+Kept (days ago): 0, 3, 7, 11, 15, 19, 23, 27, 31, 35, 43, 51, 59, 67, 75, 83, 99, 115, 147, 179
+Gaps (days):       3, 4, 4, 4, 4, 4, 4, 4, 4, 8, 8, 8, 8, 8, 8, 16, 16, 32, 32
 ```
 
 ## Command Line Options
@@ -94,9 +96,11 @@ Gaps (days):     1, 1, 1, 1, 1, 1, 2, 2, 2, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-r, --retain <number>` | Items to retain | 10 |
-| `-x, --radix <number>` | Radix for pruning (2 = gaps double, 3 = gaps triple) | 2 |
-| `--base <number>` | Alias for `--radix` | |
+| `--half-life <duration>` | Absolute half-life; density halves every `<duration>` of age (s/m/h/d/w suffixes, e.g. `30d`) | — |
+| `--half-lives <number>` | Relative half-life: how many half-lives span the history (`span/N`); scale-free | 4 |
 | `--dry-run` | Preview without changes | false |
+
+`--half-life` and `--half-lives` are mutually exclusive; with neither, the default is `--half-lives 4`.
 
 ### Filtering Options
 
@@ -144,7 +148,7 @@ either the keep-list or the prune-list on stdout, governed by a required
 # Prune dated S3 prefixes, keeping 30, via rclone
 rclone lsjson ess:ess-backups/snapshots/ --dirs-only \
   | jq -r '.[] | "\(.ModTime | fromdateiso8601)\t\(.Name)"' \
-  | sukashi-plan --retain 30 --radix 2 --mode prune \
+  | sukashi-plan --retain 30 --half-lives 4 --mode prune \
   | xargs -r -I{} rclone purge "ess:ess-backups/snapshots/{}"
 ```
 

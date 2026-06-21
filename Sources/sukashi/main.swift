@@ -12,9 +12,14 @@ struct SukashiCommand: ParsableCommand {
         files and directories using the Hasami sukashi algorithm, moving unwanted items to the macOS Trash
         for safety.
 
-        The algorithm retains more recent backups and progressively fewer older ones, so that gaps between
-        retained backups grow geometrically with age. It works with backups taken on irregular schedules
-        and is deterministic.
+        The algorithm retains more recent backups and progressively fewer older ones, fitting the retained
+        set to an exponential-decay curve so that gaps between retained backups grow with age. It works with
+        backups taken on irregular schedules and is deterministic.
+
+        Use --half-life to set an absolute half-life (retention density halves every <duration> of age, e.g.
+        --half-life 30d). Use --half-lives to set a half-life relative to the history span (--half-lives 4
+        means span/4), which keeps the same shape at any scale. The two are mutually exclusive; the default
+        is --half-lives 4.
 
         By default, processes all non-hidden files and directories. Use --files-only or --directories-only
         to restrict the type of items processed. Use --include-hidden to process hidden items.
@@ -30,11 +35,11 @@ struct SukashiCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Number of items to retain")
     var retain: Int = 10
 
-    @Option(name: [.long, .customShort("x")], help: "Radix for the pruning algorithm (how aggressively older backups thin out)")
-    var radix: Int = 2
+    @Option(name: .long, help: "Absolute half-life: retention density halves every <duration> of age. Accepts s/m/h/d/w suffixes (e.g. 30d); a bare number is seconds. Mutually exclusive with --half-lives.")
+    var halfLife: String?
 
-    @Option(name: .long, help: "Radix for the pruning algorithm (alias for --radix)")
-    var base: Int?
+    @Option(name: .long, help: "Relative half-life: how many half-lives span the full history (e.g. 4 means span/4). Scale-free. Mutually exclusive with --half-life. Default: 4.")
+    var halfLives: Double?
 
     @Flag(name: .shortAndLong, help: "Show verbose output with algorithm details")
     var verbose: Bool = false
@@ -66,9 +71,18 @@ struct SukashiCommand: ParsableCommand {
         if filesOnly && directoriesOnly {
             throw ValidationError("Cannot specify both --files-only and --directories-only")
         }
+        if retain < 0 {
+            throw ValidationError("--retain must be non-negative")
+        }
 
-        // Resolve radix: --base is an alias for --radix
-        let effectiveRadix = base ?? radix
+        // Resolve the retention policy from the half-life options (shared with
+        // sukashi-plan so both CLIs accept the same inputs and errors).
+        let policy: RetentionPolicy
+        do {
+            policy = try RetentionPolicy.resolve(halfLife: halfLife, halfLives: halfLives)
+        } catch let error as RetentionPolicyError {
+            throw ValidationError(error.message)
+        }
 
         let url = URL(fileURLWithPath: backupDirectory)
 
@@ -104,11 +118,18 @@ struct SukashiCommand: ParsableCommand {
 
         // Create BackupTree and run pruning algorithm
         let tree = BackupTree(timeCodes: timeCodes)
-        let retained = tree.retainedBackups(radix: effectiveRadix, keepCount: retain)
+        let retained = tree.retainedBackups(policy: policy, keepCount: retain)
         let retainedSet = Set(retained)
 
         if verbose {
-            print("Pruning algorithm (radix \(effectiveRadix), retain \(retain)):")
+            let policyDescription: String
+            switch policy {
+            case .absoluteHalfLife(let seconds):
+                policyDescription = "half-life \(formatDuration(seconds))"
+            case .halfLivesAcrossSpan(let k):
+                policyDescription = "\(k) half-lives across span"
+            }
+            print("Pruning algorithm (\(policyDescription), retain \(retain)):")
             print()
         }
 
@@ -238,5 +259,22 @@ struct SukashiCommand: ParsableCommand {
 
     private func formatDate(_ date: Date) -> String {
         Self.dateFormatter.string(from: date)
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let units: [(name: String, size: Double)] = [
+            ("w", 604800), ("d", 86400), ("h", 3600), ("m", 60), ("s", 1),
+        ]
+        for unit in units where seconds >= unit.size {
+            let value = seconds / unit.size
+            // Guard the Int conversion: a huge (but finite) half-life would
+            // otherwise trap converting an out-of-range Double to Int. Use
+            // Double(Int.max) so the bound is correct on 32-bit platforms too
+            // (strict `<` because Double(Int.max) rounds up to 2^63 > Int.max).
+            return value == value.rounded() && value < Double(Int.max)
+                ? "\(Int(value))\(unit.name)"
+                : String(format: "%g%@", value, unit.name)
+        }
+        return String(format: "%gs", seconds)
     }
 }

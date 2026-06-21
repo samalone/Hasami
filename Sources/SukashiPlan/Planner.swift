@@ -106,10 +106,9 @@ public enum Planner {
     /// the input set.
     public static func plan(
         items: [PlanItem],
-        radix: Int,
+        policy: RetentionPolicy,
         retain: Int
     ) -> PlanResult {
-        precondition(radix >= 2, "Radix must be at least 2")
         precondition(retain >= 0, "Retain count must be non-negative")
 
         if items.isEmpty {
@@ -125,7 +124,7 @@ public enum Planner {
 
         let representativeTimeCodes = repByTs.keys.map { TimeCode(value: $0) }
         let tree = BackupTree(timeCodes: representativeTimeCodes)
-        let retained = tree.retainedBackups(radix: radix, keepCount: retain)
+        let retained = tree.retainedBackups(policy: policy, keepCount: retain)
         let retainedTimeCodes = Set(retained)
 
         var keptIndices: Set<Int> = []

@@ -83,7 +83,7 @@ struct PlannerParseTests {
 
 struct PlannerPlanTests {
     @Test func emptyInputProducesEmptyResult() {
-        let result = Planner.plan(items: [], radix: 2, retain: 10)
+        let result = Planner.plan(items: [], policy: .halfLivesAcrossSpan(4), retain: 10)
         #expect(result == PlanResult(keep: [], prune: []))
     }
 
@@ -91,7 +91,7 @@ struct PlannerPlanTests {
         let items: [PlanItem] = (1...50).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let result = Planner.plan(items: items, radix: 2, retain: 10)
+        let result = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 10)
         let keepSet = Set(result.keep)
         let pruneSet = Set(result.prune)
         #expect(keepSet.isDisjoint(with: pruneSet))
@@ -99,11 +99,11 @@ struct PlannerPlanTests {
     }
 
     @Test func keepCountMatchesRetain() {
-        // 180 daily samples, retain 20 — same shape as the documented spec example.
+        // 180 daily samples, retain 20 — same shape as the documented example.
         let items: [PlanItem] = (1...180).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let result = Planner.plan(items: items, radix: 2, retain: 20)
+        let result = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 20)
         #expect(result.keep.count == 20)
         #expect(result.prune.count == 160)
     }
@@ -114,7 +114,7 @@ struct PlannerPlanTests {
             PlanItem(timeCode: TimeCode(value: 20), key: "b"),
             PlanItem(timeCode: TimeCode(value: 30), key: "c"),
         ]
-        let result = Planner.plan(items: items, radix: 2, retain: 10)
+        let result = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 10)
         #expect(result.output(mode: .keep) == result.keep)
         #expect(result.output(mode: .prune) == result.prune)
     }
@@ -125,18 +125,18 @@ struct PlannerPlanTests {
             PlanItem(timeCode: TimeCode(value: 10), key: "old"),
             PlanItem(timeCode: TimeCode(value: 90), key: "new"),
         ]
-        let result = Planner.plan(items: items, radix: 2, retain: 3)
+        let result = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 3)
         #expect(result.keep == ["mid", "old", "new"])
         #expect(result.prune.isEmpty)
     }
 
     @Test func newestItemAlwaysRetained() {
-        // With ages measured from the max timestamp, the newest item sits at age
-        // 0 and always has the top priority key. retain=1 must pick it.
+        // With ages measured from the newest timestamp, retain=1 must pick the
+        // newest item.
         let items: [PlanItem] = (1...100).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let result = Planner.plan(items: items, radix: 2, retain: 1)
+        let result = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 1)
         #expect(result.keep == ["key-100"])
     }
 
@@ -147,7 +147,7 @@ struct PlannerPlanTests {
             PlanItem(timeCode: TimeCode(value: 100), key: "first"),
             PlanItem(timeCode: TimeCode(value: 100), key: "second"),
         ]
-        let result = Planner.plan(items: items, radix: 2, retain: 10)
+        let result = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 10)
         #expect(result.keep == ["first"])
         #expect(result.prune == ["second"])
     }
@@ -162,23 +162,38 @@ struct PlannerPlanTests {
         let descending: [PlanItem] = timestamps.sorted(by: >).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "k-\($0)")
         }
-        let r1 = Planner.plan(items: ascending, radix: 2, retain: 3)
-        let r2 = Planner.plan(items: descending, radix: 2, retain: 3)
+        let r1 = Planner.plan(items: ascending, policy: .halfLivesAcrossSpan(4), retain: 3)
+        let r2 = Planner.plan(items: descending, policy: .halfLivesAcrossSpan(4), retain: 3)
         #expect(Set(r1.keep) == Set(r2.keep))
         // Newest is never dropped.
         #expect(r1.keep.contains("k-7000"))
         #expect(r2.keep.contains("k-7000"))
     }
 
-    @Test func keepListMatchesCoreAlgorithm() {
-        // Spec example: 180 daily samples, retain 20, radix 2. Ages are
-        // measured from max_ts = 180, so expected ages are offsets 0..128.
+    @Test func absoluteHalfLifePolicyIsWired() {
+        // Exercise the .absoluteHalfLife planner branch (the CLI --half-life path).
+        // With H = span/4 it must agree with the relative policy for k = 4.
         let items: [PlanItem] = (1...180).map {
             PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
         }
-        let result = Planner.plan(items: items, radix: 2, retain: 20)
+        let absolute = Planner.plan(items: items, policy: .absoluteHalfLife(seconds: 179.0 / 4.0), retain: 20)
+        let relative = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 20)
+        #expect(Set(absolute.keep) == Set(relative.keep))
+        #expect(absolute.keep.count == 20)
+    }
 
-        let expectedAges = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128]
+    @Test func keepListMatchesCoreAlgorithm() {
+        // 180 daily samples, retain 20, half-life = span/4. The planner must
+        // produce exactly the keys for the ages the core algorithm retains
+        // (see BackupTreeTests.testCharacterizationEvenlySpaced).
+        let items: [PlanItem] = (1...180).map {
+            PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
+        }
+        let result = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 20)
+
+        let expectedAges = [
+            0, 3, 7, 11, 15, 19, 23, 27, 31, 35, 43, 51, 59, 67, 75, 83, 99, 115, 147, 179,
+        ]
         let maxTs = 180
         let expectedKeys = expectedAges.map { "key-\(maxTs - $0)" }
         #expect(Set(result.keep) == Set(expectedKeys))

@@ -20,6 +20,11 @@ struct SukashiPlanCommand: ParsableCommand {
         emits the keys it would discard. There is no default; the caller must pick
         one, so a retain list cannot accidentally be piped into a delete command.
 
+        Use --half-life for an absolute half-life (e.g. 30d; retention density halves
+        every <duration> of age) or --half-lives for a half-life relative to the
+        history span (e.g. 4 means span/4, which is scale-free). The two are mutually
+        exclusive; the default is --half-lives 4.
+
         Keys are treated as opaque strings and emitted in the order they appeared
         on stdin. Items that share a timestamp collapse to a single representative
         (first-in-input wins); the non-representative duplicates always land in
@@ -34,19 +39,29 @@ struct SukashiPlanCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Number of items to retain.")
     var retain: Int = 10
 
-    @Option(name: [.long, .customShort("x")], help: "Radix for the pruning algorithm.")
-    var radix: Int = 2
+    @Option(name: .long, help: "Absolute half-life: retention density halves every <duration> of age. Accepts s/m/h/d/w suffixes (e.g. 30d); a bare number is seconds. Mutually exclusive with --half-lives.")
+    var halfLife: String?
+
+    @Option(name: .long, help: "Relative half-life: how many half-lives span the full history (e.g. 4 means span/4). Scale-free. Mutually exclusive with --half-life. Default: 4.")
+    var halfLives: Double?
 
     func validate() throws {
         if retain < 0 {
             throw ValidationError("--retain must be non-negative")
         }
-        if radix < 2 {
-            throw ValidationError("--radix must be at least 2")
+        // Resolve the policy at validate-time so bad half-life options are
+        // rejected before any stdin is consumed.
+        do {
+            _ = try RetentionPolicy.resolve(halfLife: halfLife, halfLives: halfLives)
+        } catch let error as RetentionPolicyError {
+            throw ValidationError(error.message)
         }
     }
 
     func run() throws {
+        // Shared with sukashi so both CLIs accept the same inputs and errors.
+        let policy = try RetentionPolicy.resolve(halfLife: halfLife, halfLives: halfLives)
+
         let items: [PlanItem]
         do {
             items = try Planner.parse(lines: StdinLineSequence())
@@ -58,7 +73,7 @@ struct SukashiPlanCommand: ParsableCommand {
 
         let result = Planner.plan(
             items: items,
-            radix: radix,
+            policy: policy,
             retain: retain
         )
 

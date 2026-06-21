@@ -16,11 +16,13 @@ Sukashi (透かし) is a filesystem pruning utility that implements the Hasami
 sukashi algorithm. Like pruning a bonsai tree to let light through, this tool
 intelligently thins collections of files and directories based on their creation
 timestamps. It retains more recent items densely and progressively fewer older
-ones, so that gaps between retained items grow geometrically with age.
+ones, fitting the retained set to an exponential-decay curve so that gaps between
+retained items grow with age.
 
-The algorithm uses radix-based priority selection: each backup's age is converted
-to a priority key via digit reversal, then backups are sorted by priority and the
-top N are kept. This produces well-spaced representatives across all time scales.
+The algorithm warps each backup's age into a coordinate where the target
+retention density is uniform, then greedily removes the most redundant backups
+until exactly `--retain` remain (always keeping the newest and oldest). See the
+ALGORITHM section below.
 
 ## OPTIONS
 
@@ -31,14 +33,20 @@ top N are kept. This produces well-spaced representatives across all time scales
   - Number of items to retain (default: 10)
   - Must be a non-negative integer
 
-- `-x, --radix <number>`
-  - Radix for the pruning algorithm (default: 2)
-  - Controls how aggressively older backups thin out
-  - With radix 2, gaps roughly double; with radix 3, they roughly triple
-  - Must be at least 2
+- `--half-life <duration>`
+  - Absolute half-life: retention density halves every `<duration>` of age
+  - Accepts `s`/`m`/`h`/`d`/`w` suffixes (e.g. `30d`, `12h`, `2w`); a bare number
+    is seconds
+  - Mutually exclusive with `--half-lives`
 
-- `--base <number>`
-  - Alias for `--radix` (for backward compatibility)
+- `--half-lives <number>`
+  - Relative half-life: how many half-lives fit across the full history span
+    (e.g. `4` means `span / 4`)
+  - Scale-free — the retained shape is the same regardless of how long the
+    history is
+  - Mutually exclusive with `--half-life`
+  - Used by default with a value of 4 when neither half-life option is given
+  - Must be positive
 
 ### Filtering Options
 
@@ -86,8 +94,8 @@ top N are kept. This produces well-spaced representatives across all time scales
 # Prune a backup directory, keeping 10 items
 sukashi /path/to/backups
 
-# Prune with custom retention and radix
-sukashi /path/to/backups --retain 20 --radix 3
+# Prune with custom retention and an absolute 2-week half-life
+sukashi /path/to/backups --retain 20 --half-life 2w
 
 # Dry run to see what would happen
 sukashi /path/to/backups --dry-run --verbose
@@ -113,8 +121,8 @@ sukashi /path/to/development --include-hidden --retain 8
 # Network volume: force delete instead of Trash
 sukashi /Volumes/NAS/backups --force-delete --retain 20
 
-# Radix 3 thins older backups more aggressively
-sukashi /path/to/backups --radix 3 --retain 30
+# A short half-life thins older backups more aggressively
+sukashi /path/to/backups --half-lives 8 --retain 30
 
 # Safe testing with dry run
 sukashi /important/backups --dry-run --verbose --retain 5
@@ -127,17 +135,18 @@ The sukashi algorithm works as follows:
 1. **Age Computation**: Each item's creation timestamp is converted to an age
    relative to the newest timestamp in the set. The newest item has age 0.
 
-2. **Priority Key**: Each age is converted to a priority key `(reversed_value,
-   tier)` by extracting digits in the given radix, counting them (tier), and
-   reversing their order (reversed_value).
+2. **CDF Warp**: Each age `t` is warped into `u(t) = 1 − 2^(−t / H)`, the CDF of
+   the exponential-decay retention curve with half-life `H`. In the `u`
+   coordinate, the target retention density is uniform.
 
-3. **Selection**: Items are sorted by priority key (ascending) and the first
-   `retain` items are kept.
+3. **Greedy Thinning**: With the newest and oldest items pinned, the item whose
+   removal would merge the smallest `u`-gap (the most redundant one) is removed
+   repeatedly until exactly `--retain` items remain.
 
 This produces a distribution where:
-- The newest backup (age 0) always has highest priority and is always retained
-- Each "round" of selection picks one representative from each time tier
-- Gaps between retained backups grow geometrically with age
+- The newest backup (age 0) and the oldest backup are always retained
+- Recent backups are dense and older backups are sparse
+- Gaps between retained backups grow with age, fitting an exponential-decay curve
 - No wall-clock time is consulted — the output is a pure function of the input
 
 ## BEHAVIOR
@@ -147,7 +156,7 @@ This produces a distribution where:
 - Processes all non-hidden files and directories
 - Sorts output alphabetically by name
 - Moves unwanted items to macOS Trash (not permanent deletion)
-- Uses radix 2
+- Uses a relative half-life of `span / 4`
 - Retains 10 items by default
 
 ### Output Format
