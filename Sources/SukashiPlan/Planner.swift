@@ -7,6 +7,16 @@ public enum PlanMode: String, CaseIterable {
     case prune
 }
 
+/// How the retention curve's half-life is determined.
+public enum RetentionPolicy: Equatable {
+    /// An absolute half-life in seconds: retention density halves every `seconds`
+    /// of age, regardless of the total history span.
+    case absoluteHalfLife(seconds: Double)
+    /// A half-life expressed as a fraction of the history span (`span / value`),
+    /// giving a scale-free retained shape.
+    case halfLivesAcrossSpan(Double)
+}
+
 /// A single `(timestamp, key)` pair parsed from stdin.
 public struct PlanItem: Equatable {
     public let timeCode: TimeCode
@@ -106,10 +116,9 @@ public enum Planner {
     /// the input set.
     public static func plan(
         items: [PlanItem],
-        radix: Int,
+        policy: RetentionPolicy,
         retain: Int
     ) -> PlanResult {
-        precondition(radix >= 2, "Radix must be at least 2")
         precondition(retain >= 0, "Retain count must be non-negative")
 
         if items.isEmpty {
@@ -125,7 +134,13 @@ public enum Planner {
 
         let representativeTimeCodes = repByTs.keys.map { TimeCode(value: $0) }
         let tree = BackupTree(timeCodes: representativeTimeCodes)
-        let retained = tree.retainedBackups(radix: radix, keepCount: retain)
+        let retained: [TimeCode]
+        switch policy {
+        case .absoluteHalfLife(let seconds):
+            retained = tree.retainedBackups(halfLife: seconds, keepCount: retain)
+        case .halfLivesAcrossSpan(let k):
+            retained = tree.retainedBackups(halfLivesAcrossSpan: k, keepCount: retain)
+        }
         let retainedTimeCodes = Set(retained)
 
         var keptIndices: Set<Int> = []

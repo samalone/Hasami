@@ -14,7 +14,7 @@ sukashi-plan --mode <keep|prune> [OPTIONS]
 
 `sukashi-plan` exposes the Hasami sukashi (透かし) pruning algorithm as a
 stdin/stdout filter. It reads timestamped items from stdin, runs the same
-radix-based priority selection that `sukashi(1)` uses, and writes either the
+CDF-warp greedy-thinning selection that `sukashi(1)` uses, and writes either the
 retained keys or the discarded keys to stdout — one per line, preserving the
 order they appeared on input.
 
@@ -57,11 +57,18 @@ exactly one of the two modes' output.
 
   Number of items to retain (default: 10). Must be non-negative.
 
-- `-x, --radix <number>`
+- `--half-life <duration>`
 
-  Radix for the pruning algorithm (default: 2). Controls how aggressively
-  older backups thin out: with radix 2 gaps roughly double, with radix 3
-  they roughly triple. Must be at least 2.
+  Absolute half-life: retention density halves every `<duration>` of age.
+  Accepts `s`/`m`/`h`/`d`/`w` suffixes (e.g. `30d`); a bare number is seconds.
+  Mutually exclusive with `--half-lives`.
+
+- `--half-lives <number>`
+
+  Relative half-life: how many half-lives fit across the full history span
+  (e.g. `4` means `span / 4`). Scale-free. Mutually exclusive with
+  `--half-life`. Used by default with a value of 4 when neither half-life
+  option is given. Must be positive.
 
 - `-h, --help`
 
@@ -74,7 +81,7 @@ exactly one of the two modes' output.
 ```bash
 rclone lsjson ess-prod:ess-backups/snapshots/ --dirs-only \
   | jq -r '.[] | "\(.ModTime | fromdateiso8601)\t\(.Name)"' \
-  | sukashi-plan --retain 30 --radix 2 --mode prune \
+  | sukashi-plan --retain 30 --half-lives 4 --mode prune \
   | xargs -r -I{} rclone purge "ess-prod:ess-backups/snapshots/{}"
 ```
 

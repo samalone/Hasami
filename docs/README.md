@@ -9,7 +9,7 @@
 
 ### Technical Documentation
 
-- **[backup-pruning-algorithm.md](backup-pruning-algorithm.md)** - Radix-based priority selection algorithm specification
+- **[backup-pruning-algorithm.md](backup-pruning-algorithm.md)** - CDF-warp + greedy-thinning algorithm specification
 
 ## Quick Start
 
