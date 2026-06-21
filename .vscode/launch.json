@@ -37,6 +37,26 @@
             "preLaunchTask": "swift: Build Release sukashi",
             "target": "sukashi",
             "configuration": "release"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Hasami}",
+            "name": "Debug sukashi-plan",
+            "target": "sukashi-plan",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug sukashi-plan"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Hasami}",
+            "name": "Release sukashi-plan",
+            "target": "sukashi-plan",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release sukashi-plan"
         }
     ]
 }
