@@ -268,8 +268,10 @@ struct SukashiCommand: ParsableCommand {
         for unit in units where seconds >= unit.size {
             let value = seconds / unit.size
             // Guard the Int conversion: a huge (but finite) half-life would
-            // otherwise trap converting an out-of-range Double to Int.
-            return value == value.rounded() && value < 1e15
+            // otherwise trap converting an out-of-range Double to Int. Use
+            // Double(Int.max) so the bound is correct on 32-bit platforms too
+            // (strict `<` because Double(Int.max) rounds up to 2^63 > Int.max).
+            return value == value.rounded() && value < Double(Int.max)
                 ? "\(Int(value))\(unit.name)"
                 : String(format: "%g%@", value, unit.name)
         }

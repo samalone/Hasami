@@ -144,9 +144,13 @@ extension BackupTree {
             // returns everything, so the half-life value is irrelevant.
             return thinned(halfLife: 1, keepCount: keepCount)
         }
-        // span/halfLivesAcrossSpan can overflow to infinity for an absurdly small
-        // (but finite) divisor; thinned's precondition rejects a non-finite result.
-        return thinned(halfLife: Double(span) / halfLivesAcrossSpan, keepCount: keepCount)
+        // An extreme (but finite) divisor can round span/halfLivesAcrossSpan to 0
+        // or overflow it to infinity. Rather than crash on absurd input we can't
+        // catch at parse time (the quotient is span-dependent), fall back to the
+        // gentlest representable decay — the limit as halfLivesAcrossSpan → 0.
+        let halfLife = Double(span) / halfLivesAcrossSpan
+        let safeHalfLife = (halfLife > 0 && halfLife.isFinite) ? halfLife : .greatestFiniteMagnitude
+        return thinned(halfLife: safeHalfLife, keepCount: keepCount)
     }
 
     /// Selects which backups to retain under the given ``RetentionPolicy``,

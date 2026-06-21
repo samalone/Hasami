@@ -122,6 +122,16 @@ struct BackupTreeTests {
         #expect(newestGap <= oldestGap)
     }
 
+    @Test func testExtremeDivisorDoesNotCrash() {
+        // A tiny --half-lives makes span/k overflow to infinity; the relative
+        // method must clamp gracefully rather than trip the half-life precondition.
+        let tree = BackupTree(timeCodes: (1...50).map { TimeCode(value: $0) })
+        let result = tree.retainedBackups(halfLivesAcrossSpan: 1e-310, keepCount: 20)
+        #expect(result.count == 20)
+        #expect(result.first == TimeCode(value: 50))  // newest still pinned
+        #expect(result.last == TimeCode(value: 1))     // oldest still pinned
+    }
+
     @Test func testAbsoluteEqualsRelativeWhenHalfLifeMatchesSpan() {
         // The relative entry point is just the absolute one with H = span / k.
         let tree = BackupTree(timeCodes: (1...400).map { TimeCode(value: $0) })
