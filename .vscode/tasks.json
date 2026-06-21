@@ -43,6 +43,23 @@
             "problemMatcher": []
         },
         {
+            "label": "Build, Test, and Install",
+            "detail": "Release build, run tests, then install sukashi and sukashi-plan to /usr/local/bin.",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/install.sh",
+            "args": [],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Release: Major",
             "detail": "Bump the major version, build, test, tag, and push.",
             "type": "shell",
