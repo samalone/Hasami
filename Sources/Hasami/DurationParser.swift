@@ -19,7 +19,7 @@ public enum DurationParser {
     /// - Returns: The duration in seconds, or `nil` if the string is not a valid,
     ///   positive duration.
     public static func seconds(from string: String) -> Double? {
-        let s = string.trimmingCharacters(in: .whitespaces).lowercased()
+        let s = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard let last = s.last else { return nil }
 
         if let multiplier = multipliers[last] {

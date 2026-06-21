@@ -69,4 +69,15 @@ struct RetentionPolicyTests {
             try RetentionPolicy.resolve(halfLife: nil, halfLives: 0)
         }
     }
+
+    @Test func rejectsNonFiniteHalfLives() {
+        // `--half-lives infinity` parses to .infinity, which is > 0 but would make
+        // span/k collapse the half-life to 0 and corrupt the warp.
+        #expect(throws: RetentionPolicyError.nonPositiveHalfLives) {
+            try RetentionPolicy.resolve(halfLife: nil, halfLives: .infinity)
+        }
+        #expect(throws: RetentionPolicyError.nonPositiveHalfLives) {
+            try RetentionPolicy.resolve(halfLife: nil, halfLives: .nan)
+        }
+    }
 }

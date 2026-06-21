@@ -22,7 +22,7 @@ public enum RetentionPolicyError: Error, Equatable {
         case .invalidDuration(let value):
             return "Invalid --half-life value '\(value)'. Use e.g. 30d, 12h, 90m, 2w, or a number of seconds."
         case .nonPositiveHalfLives:
-            return "--half-lives must be positive"
+            return "--half-lives must be positive and finite"
         }
     }
 }
@@ -53,7 +53,7 @@ extension RetentionPolicy {
             return .absoluteHalfLife(seconds: seconds)
         }
         let k = halfLives ?? defaultHalfLivesAcrossSpan
-        guard k > 0 else { throw RetentionPolicyError.nonPositiveHalfLives }
+        guard k > 0, k.isFinite else { throw RetentionPolicyError.nonPositiveHalfLives }
         return .halfLivesAcrossSpan(k)
     }
 }

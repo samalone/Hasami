@@ -113,7 +113,7 @@ extension BackupTree {
     ///   - keepCount: Maximum number of backups to retain (>= 0).
     /// - Returns: The backups to retain, sorted newest-first.
     public func retainedBackups(halfLife: Double, keepCount: Int) -> [TimeCode] {
-        precondition(halfLife > 0, "Half-life must be positive")
+        precondition(halfLife > 0 && halfLife.isFinite, "Half-life must be positive and finite")
         precondition(keepCount >= 0, "Keep count must be non-negative")
         return thinned(halfLife: halfLife, keepCount: keepCount)
     }
@@ -132,7 +132,7 @@ extension BackupTree {
     ///   - keepCount: Maximum number of backups to retain (>= 0).
     /// - Returns: The backups to retain, sorted newest-first.
     public func retainedBackups(halfLivesAcrossSpan: Double, keepCount: Int) -> [TimeCode] {
-        precondition(halfLivesAcrossSpan > 0, "Half-lives across span must be positive")
+        precondition(halfLivesAcrossSpan > 0 && halfLivesAcrossSpan.isFinite, "Half-lives across span must be positive and finite")
         precondition(keepCount >= 0, "Keep count must be non-negative")
 
         guard let newest = timeCodes.last, let oldest = timeCodes.first else {
@@ -144,6 +144,8 @@ extension BackupTree {
             // returns everything, so the half-life value is irrelevant.
             return thinned(halfLife: 1, keepCount: keepCount)
         }
+        // span/halfLivesAcrossSpan can overflow to infinity for an absurdly small
+        // (but finite) divisor; thinned's precondition rejects a non-finite result.
         return thinned(halfLife: Double(span) / halfLivesAcrossSpan, keepCount: keepCount)
     }
 
@@ -163,8 +165,10 @@ extension BackupTree {
         }
     }
 
-    /// Core CDF-warp greedy thinner. Assumes `halfLife > 0` and `keepCount >= 0`.
+    /// Core CDF-warp greedy thinner. Assumes `keepCount >= 0` and a positive,
+    /// finite `halfLife`.
     private func thinned(halfLife: Double, keepCount: Int) -> [TimeCode] {
+        precondition(halfLife > 0 && halfLife.isFinite, "Half-life must be positive and finite")
         let points = Array(timeCodes)            // ascending: oldest -> newest
         let n = points.count
 
@@ -173,9 +177,10 @@ extension BackupTree {
         if keepCount == 1 { return [points[n - 1]] }            // newest only
 
         // Warp each age (relative to the newest) into u = 1 - 2^(-age / H).
-        // u is non-decreasing along `points`; the newest has u = 0.
+        // u is non-increasing along `points` (oldest has the largest u); the
+        // newest has u = 0.
         let newest = points[n - 1].value
-        let u = points.map { 1.0 - pow(2.0, -Double(newest - $0.value) / halfLife) }
+        let u = points.map { 1.0 - exp2(-Double(newest - $0.value) / halfLife) }
 
         // Survivors form a doubly-linked sequence over indices 0..<n. The
         // endpoints (0 = oldest, n-1 = newest) are pinned; only interior points
