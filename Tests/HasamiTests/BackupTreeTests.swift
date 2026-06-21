@@ -157,7 +157,7 @@ struct BackupTreeTests {
 }
 
 // Filled in from the algorithm's actual output; see testCharacterizationEvenlySpaced.
-// Gaps grow with age (3, 4×8, 8×5, 16×2, 32×2), fitting the exponential-decay curve.
+// Gaps grow with age (3, 4×8, 8×6, 16×2, 32×2 — 19 gaps), fitting the exponential-decay curve.
 private let CHARACTERIZATION_AGES_180_20: [Int] = [
     0, 3, 7, 11, 15, 19, 23, 27, 31, 35, 43, 51, 59, 67, 75, 83, 99, 115, 147, 179,
 ]

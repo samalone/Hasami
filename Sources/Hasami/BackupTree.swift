@@ -147,6 +147,22 @@ extension BackupTree {
         return thinned(halfLife: Double(span) / halfLivesAcrossSpan, keepCount: keepCount)
     }
 
+    /// Selects which backups to retain under the given ``RetentionPolicy``,
+    /// dispatching to the matching half-life method.
+    ///
+    /// - Parameters:
+    ///   - policy: Whether the half-life is absolute or a fraction of the span.
+    ///   - keepCount: Maximum number of backups to retain (>= 0).
+    /// - Returns: The backups to retain, sorted newest-first.
+    public func retainedBackups(policy: RetentionPolicy, keepCount: Int) -> [TimeCode] {
+        switch policy {
+        case .absoluteHalfLife(let seconds):
+            return retainedBackups(halfLife: seconds, keepCount: keepCount)
+        case .halfLivesAcrossSpan(let k):
+            return retainedBackups(halfLivesAcrossSpan: k, keepCount: keepCount)
+        }
+    }
+
     /// Core CDF-warp greedy thinner. Assumes `halfLife > 0` and `keepCount >= 0`.
     private func thinned(halfLife: Double, keepCount: Int) -> [TimeCode] {
         let points = Array(timeCodes)            // ascending: oldest -> newest

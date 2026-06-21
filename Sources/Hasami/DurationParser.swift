@@ -23,12 +23,14 @@ public enum DurationParser {
         guard let last = s.last else { return nil }
 
         if let multiplier = multipliers[last] {
-            guard let value = Double(s.dropLast()), value > 0 else { return nil }
-            return value * multiplier
+            guard let value = Double(s.dropLast()), value > 0, value.isFinite else { return nil }
+            let result = value * multiplier
+            return result.isFinite ? result : nil
         }
 
         // No recognized suffix: treat the whole string as a number of seconds.
-        guard let value = Double(s), value > 0 else { return nil }
+        // `Double` parses "inf"/"nan"; reject those (and any overflow) explicitly.
+        guard let value = Double(s), value > 0, value.isFinite else { return nil }
         return value
     }
 }

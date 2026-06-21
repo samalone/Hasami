@@ -71,23 +71,17 @@ struct SukashiCommand: ParsableCommand {
         if filesOnly && directoriesOnly {
             throw ValidationError("Cannot specify both --files-only and --directories-only")
         }
-        if halfLife != nil && halfLives != nil {
-            throw ValidationError("Cannot specify both --half-life and --half-lives")
+        if retain < 0 {
+            throw ValidationError("--retain must be non-negative")
         }
 
-        // Resolve the retention policy from the half-life options.
-        let halfLifeSeconds: Double?
-        if let halfLife {
-            guard let seconds = DurationParser.seconds(from: halfLife) else {
-                throw ValidationError("Invalid --half-life value '\(halfLife)'. Use e.g. 30d, 12h, 90m, 2w, or a number of seconds.")
-            }
-            halfLifeSeconds = seconds
-        } else {
-            halfLifeSeconds = nil
-        }
-        let halfLivesAcrossSpan = halfLives ?? 4.0
-        if halfLifeSeconds == nil && halfLivesAcrossSpan <= 0 {
-            throw ValidationError("--half-lives must be positive")
+        // Resolve the retention policy from the half-life options (shared with
+        // sukashi-plan so both CLIs accept the same inputs and errors).
+        let policy: RetentionPolicy
+        do {
+            policy = try RetentionPolicy.resolve(halfLife: halfLife, halfLives: halfLives)
+        } catch let error as RetentionPolicyError {
+            throw ValidationError(error.message)
         }
 
         let url = URL(fileURLWithPath: backupDirectory)
@@ -124,18 +118,17 @@ struct SukashiCommand: ParsableCommand {
 
         // Create BackupTree and run pruning algorithm
         let tree = BackupTree(timeCodes: timeCodes)
-        let retained: [TimeCode]
-        let policyDescription: String
-        if let halfLifeSeconds {
-            retained = tree.retainedBackups(halfLife: halfLifeSeconds, keepCount: retain)
-            policyDescription = "half-life \(formatDuration(halfLifeSeconds))"
-        } else {
-            retained = tree.retainedBackups(halfLivesAcrossSpan: halfLivesAcrossSpan, keepCount: retain)
-            policyDescription = "\(halfLivesAcrossSpan) half-lives across span"
-        }
+        let retained = tree.retainedBackups(policy: policy, keepCount: retain)
         let retainedSet = Set(retained)
 
         if verbose {
+            let policyDescription: String
+            switch policy {
+            case .absoluteHalfLife(let seconds):
+                policyDescription = "half-life \(formatDuration(seconds))"
+            case .halfLivesAcrossSpan(let k):
+                policyDescription = "\(k) half-lives across span"
+            }
             print("Pruning algorithm (\(policyDescription), retain \(retain)):")
             print()
         }
@@ -274,10 +267,12 @@ struct SukashiCommand: ParsableCommand {
         ]
         for unit in units where seconds >= unit.size {
             let value = seconds / unit.size
-            return value == value.rounded()
+            // Guard the Int conversion: a huge (but finite) half-life would
+            // otherwise trap converting an out-of-range Double to Int.
+            return value == value.rounded() && value < 1e15
                 ? "\(Int(value))\(unit.name)"
-                : String(format: "%.2f%@", value, unit.name)
+                : String(format: "%g%@", value, unit.name)
         }
-        return "\(seconds)s"
+        return String(format: "%gs", seconds)
     }
 }

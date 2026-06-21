@@ -49,15 +49,19 @@ struct SukashiPlanCommand: ParsableCommand {
         if retain < 0 {
             throw ValidationError("--retain must be non-negative")
         }
-        if halfLife != nil && halfLives != nil {
-            throw ValidationError("Cannot specify both --half-life and --half-lives")
-        }
-        if let halfLives, halfLives <= 0 {
-            throw ValidationError("--half-lives must be positive")
+        // Resolve the policy at validate-time so bad half-life options are
+        // rejected before any stdin is consumed.
+        do {
+            _ = try RetentionPolicy.resolve(halfLife: halfLife, halfLives: halfLives)
+        } catch let error as RetentionPolicyError {
+            throw ValidationError(error.message)
         }
     }
 
     func run() throws {
+        // Shared with sukashi so both CLIs accept the same inputs and errors.
+        let policy = try RetentionPolicy.resolve(halfLife: halfLife, halfLives: halfLives)
+
         let items: [PlanItem]
         do {
             items = try Planner.parse(lines: StdinLineSequence())
@@ -65,16 +69,6 @@ struct SukashiPlanCommand: ParsableCommand {
             let message = "sukashi-plan: \(error.errorDescription ?? "parse error")\n"
             FileHandle.standardError.write(Data(message.utf8))
             throw ExitCode(65)
-        }
-
-        let policy: RetentionPolicy
-        if let halfLife {
-            guard let seconds = DurationParser.seconds(from: halfLife) else {
-                throw ValidationError("Invalid --half-life value '\(halfLife)'. Use e.g. 30d, 12h, 90m, 2w, or a number of seconds.")
-            }
-            policy = .absoluteHalfLife(seconds: seconds)
-        } else {
-            policy = .halfLivesAcrossSpan(halfLives ?? 4.0)
         }
 
         let result = Planner.plan(

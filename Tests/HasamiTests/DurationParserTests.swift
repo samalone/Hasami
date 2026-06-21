@@ -27,4 +27,46 @@ struct DurationParserTests {
         #expect(DurationParser.seconds(from: "-5h") == nil)    // not positive
         #expect(DurationParser.seconds(from: "10y") == nil)    // unsupported suffix
     }
+
+    @Test func rejectsNonFiniteValues() {
+        // `Double` parses these, but an infinite half-life produces a degenerate
+        // retention curve (and would crash the verbose duration formatter).
+        #expect(DurationParser.seconds(from: "inf") == nil)
+        #expect(DurationParser.seconds(from: "infinity") == nil)
+        #expect(DurationParser.seconds(from: "nan") == nil)
+        #expect(DurationParser.seconds(from: "1e400") == nil)   // overflows to +inf
+        #expect(DurationParser.seconds(from: "1e400w") == nil)  // suffix product overflows
+    }
+}
+
+struct RetentionPolicyTests {
+    @Test func defaultsToRelativeFourWhenNeitherGiven() throws {
+        #expect(try RetentionPolicy.resolve(halfLife: nil, halfLives: nil) == .halfLivesAcrossSpan(4))
+    }
+
+    @Test func absoluteParsesDuration() throws {
+        #expect(try RetentionPolicy.resolve(halfLife: "30d", halfLives: nil) == .absoluteHalfLife(seconds: 2_592_000))
+    }
+
+    @Test func relativeUsesGivenValue() throws {
+        #expect(try RetentionPolicy.resolve(halfLife: nil, halfLives: 8) == .halfLivesAcrossSpan(8))
+    }
+
+    @Test func rejectsConflictingOptions() {
+        #expect(throws: RetentionPolicyError.conflictingHalfLifeOptions) {
+            try RetentionPolicy.resolve(halfLife: "1d", halfLives: 4)
+        }
+    }
+
+    @Test func rejectsInvalidDuration() {
+        #expect(throws: RetentionPolicyError.invalidDuration("nope")) {
+            try RetentionPolicy.resolve(halfLife: "nope", halfLives: nil)
+        }
+    }
+
+    @Test func rejectsNonPositiveHalfLives() {
+        #expect(throws: RetentionPolicyError.nonPositiveHalfLives) {
+            try RetentionPolicy.resolve(halfLife: nil, halfLives: 0)
+        }
+    }
 }

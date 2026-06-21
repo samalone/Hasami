@@ -170,6 +170,18 @@ struct PlannerPlanTests {
         #expect(r2.keep.contains("k-7000"))
     }
 
+    @Test func absoluteHalfLifePolicyIsWired() {
+        // Exercise the .absoluteHalfLife planner branch (the CLI --half-life path).
+        // With H = span/4 it must agree with the relative policy for k = 4.
+        let items: [PlanItem] = (1...180).map {
+            PlanItem(timeCode: TimeCode(value: $0), key: "key-\($0)")
+        }
+        let absolute = Planner.plan(items: items, policy: .absoluteHalfLife(seconds: 179.0 / 4.0), retain: 20)
+        let relative = Planner.plan(items: items, policy: .halfLivesAcrossSpan(4), retain: 20)
+        #expect(Set(absolute.keep) == Set(relative.keep))
+        #expect(absolute.keep.count == 20)
+    }
+
     @Test func keepListMatchesCoreAlgorithm() {
         // 180 daily samples, retain 20, half-life = span/4. The planner must
         // produce exactly the keys for the ages the core algorithm retains
