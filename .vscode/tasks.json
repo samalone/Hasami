@@ -41,6 +41,60 @@
                 "clear": true
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Release: Major",
+            "detail": "Bump the major version, build, test, tag, and push.",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/release.sh",
+            "args": [
+                "major"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Release: Minor",
+            "detail": "Bump the minor version, build, test, tag, and push.",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/release.sh",
+            "args": [
+                "minor"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Release: Patch",
+            "detail": "Bump the patch version, build, test, tag, and push.",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/release.sh",
+            "args": [
+                "patch"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "problemMatcher": []
         }
     ]
 }
