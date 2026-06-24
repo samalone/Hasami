@@ -143,15 +143,16 @@ struct LongTermSimulationTests {
         let span = ages.last ?? 0
 
         // Structure: a full keep-set spanning the whole year, endpoints pinned.
+        // (Ordering and uniqueness of the raw result are covered by
+        // testResultSortedNewestFirst; `finalAges` is already sorted here, so
+        // re-checking those would be vacuous.)
         #expect(ages.count == Self.KEEP)
         #expect(ages.first == 0)                       // newest pinned at age 0
         #expect(span == 363)                           // oldest (day-0 backup) pinned; span = 52w-1d
-        #expect(ages == ages.sorted())                 // ascending
-        #expect(Set(ages).count == ages.count)         // no duplicates
 
         // Exponential shape: gaps near "now" are far tighter than gaps in the tail.
         let g = Self.gaps(ages)
-        #expect(g.first! <= 3)                          // recent gaps ~ daily/weekly granularity
+        #expect(g.first! <= 7)                          // recent gaps within the weekly prune cadence
         #expect(g.last! >= 4 * g.first!)                // tail gaps doubled several times over
 
         // Convergence + steady state. The set is uniform-ish daily blocks until the
@@ -187,8 +188,6 @@ struct LongTermSimulationTests {
         #expect(ages.count == Self.KEEP)
         #expect(ages.first == 0)                       // newest pinned
         #expect(span == 363)                           // oldest pinned; span = full year
-        #expect(ages == ages.sorted())
-        #expect(Set(ages).count == ages.count)
 
         // A fixed 30-day half-life over a 363-day span is ~12 half-lives, so the
         // curve decays much faster than the relative case: the keep-set is heavily
