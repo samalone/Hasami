@@ -40,7 +40,9 @@ struct LongTermSimulationTests {
     /// Ages (in days from the newest backup) of every backup in `tree`, ascending.
     private static func agesInDays(_ tree: BackupTree) -> [Double] {
         guard let newest = tree.mostRecent?.value else { return [] }
-        return tree.backups.map { Double(newest - $0.value) / Double(DAY) }.sorted()
+        // `backups` is ascending (oldest→newest); reversing then mapping
+        // `newest - value` yields ages ascending from 0 in O(N) — no sort needed.
+        return tree.backups.reversed().map { Double(newest - $0.value) / Double(DAY) }
     }
 
     /// RMS deviation, in warp space, of `ages` from a perfectly uniform-in-u set.
@@ -131,7 +133,7 @@ struct LongTermSimulationTests {
 
     // MARK: - Relative half-life: `--half-lives 4`
 
-    @Test func simulateWeeklyRelativeHalfLives() {
+    @Test func simulateWeeklyRelativeHalfLives() throws {
         let halfLives = 4.0
         let r = Self.runScenario(
             prune: { $0.retainedBackups(halfLivesAcrossSpan: halfLives, keepCount: Self.KEEP) },
@@ -151,18 +153,22 @@ struct LongTermSimulationTests {
         #expect(span == 363)                           // oldest (day-0 backup) pinned; span = 52w-1d
 
         // Exponential shape: gaps near "now" are far tighter than gaps in the tail.
+        // `#require` (fail-fast) for the prerequisite unwraps; a force-unwrap would
+        // trap and abort the whole run rather than failing this test gracefully.
         let g = Self.gaps(ages)
-        #expect(g.first! <= 7)                          // recent gaps within the weekly prune cadence
-        #expect(g.last! >= 4 * g.first!)                // tail gaps doubled several times over
+        let firstGap = try #require(g.first)
+        let lastGap = try #require(g.last)
+        #expect(firstGap <= 7)                          // recent gaps within the weekly prune cadence
+        #expect(lastGap >= 4 * firstGap)                // tail gaps doubled several times over
 
         // Convergence + steady state. The set is uniform-ish daily blocks until the
         // 50-cap engages (~week 8); after that it reshapes toward the ideal and stays.
-        let final = r.trace.last!
+        let final = try #require(r.trace.last)
         #expect(final.rmsPct < 3.0)                     // converged tightly to the ideal curve
         let steadyState = r.trace.filter { $0.week >= 20 }
         #expect(steadyState.allSatisfy { $0.rmsPct < 5.0 })   // no drift away from the curve
         // Reshaping genuinely improved the fit versus the unpruned filling phase.
-        let fillingPhaseWorst = r.trace.filter { $0.week <= 7 }.map(\.rmsPct).max()!
+        let fillingPhaseWorst = try #require(r.trace.filter { $0.week <= 7 }.map(\.rmsPct).max())
         #expect(final.rmsPct < fillingPhaseWorst / 4)
 
         // Iteration is no worse than a one-shot prune (no hysteresis penalty).
@@ -172,7 +178,7 @@ struct LongTermSimulationTests {
 
     // MARK: - Absolute half-life: `--half-life 30d`
 
-    @Test func simulateWeeklyAbsoluteHalfLife() {
+    @Test func simulateWeeklyAbsoluteHalfLife() throws {
         let halfLifeDays = 30.0
         let halfLifeSeconds = halfLifeDays * Double(Self.DAY)
         let r = Self.runScenario(
@@ -196,10 +202,12 @@ struct LongTermSimulationTests {
         let withinFirst90 = ages.filter { $0 <= 90 }.count
         #expect(withinFirst90 >= 30)                    // recent-heavy clustering
         let g = Self.gaps(ages)
-        #expect(g.last! >= 4 * g.first!)                // big tail gap before the pinned oldest
+        let firstGap = try #require(g.first)
+        let lastGap = try #require(g.last)
+        #expect(lastGap >= 4 * firstGap)                // big tail gap before the pinned oldest
 
         // Convergence + steady state, measured against the fixed-H curve.
-        let final = r.trace.last!
+        let final = try #require(r.trace.last)
         #expect(final.rmsPct < 5.0)
         let steadyState = r.trace.filter { $0.week >= 25 }
         #expect(steadyState.allSatisfy { $0.rmsPct < 8.0 })
